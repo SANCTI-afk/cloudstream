@@ -1,10 +1,7 @@
 package com.lagradost.cloudstream3.utils
 
 import android.net.Uri
-import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.USER_AGENT
-import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.extractors.*
 import kotlinx.coroutines.delay
@@ -208,6 +205,8 @@ val extractorApis: MutableList<ExtractorApi> = arrayListOf(
     VideovardSX(),
     Mp4Upload(),
     StreamTape(),
+    StreamTapeNet(),
+    ShaveTape(),
 
     //mixdrop extractors
     MixDropBz(),
@@ -238,6 +237,7 @@ val extractorApis: MutableList<ExtractorApi> = arrayListOf(
     Vidgomunime(),
     Sbflix(),
     Streamsss(),
+    Sbspeed(),
 
     Fastream(),
 
@@ -249,6 +249,8 @@ val extractorApis: MutableList<ExtractorApi> = arrayListOf(
     LayarKaca(),
     Rasacintaku(),
     FEnet(),
+    Kotakajair(),
+    Cdnplayer(),
     //  WatchSB(), 'cause StreamSB.kt works
     Uqload(),
     Uqload1(),
@@ -286,6 +288,7 @@ val extractorApis: MutableList<ExtractorApi> = arrayListOf(
     Userload(),
     Supervideo(),
     GuardareStream(),
+    CineGrabber(),
 
     // StreamSB.kt works
     //  SBPlay(),
@@ -319,10 +322,17 @@ val extractorApis: MutableList<ExtractorApi> = arrayListOf(
     Linkbox(),
     Acefile(),
     SpeedoStream(),
+    SpeedoStream1(),
     Zorofile(),
     Embedgram(),
     Mvidoo(),
     Streamplay(),
+    Vidmoly(),
+    Vidmolyme(),
+    Voe(),
+    Moviehab(),
+    MoviehabNet(),
+    Jeniusplay(),
 
     Gdriveplayerapi(),
     Gdriveplayerapp(),
@@ -335,6 +345,7 @@ val extractorApis: MutableList<ExtractorApi> = arrayListOf(
     Gdriveplayerco(),
     Gdriveplayer(),
     DatabaseGdrive(),
+    DatabaseGdrive2(),
 
     YoutubeExtractor(),
     YoutubeShortLinkExtractor(),
@@ -397,6 +408,28 @@ suspend fun getPostForm(requestUrl: String, html: String): String? {
         ),
         data = mapOf("op" to op, "id" to id, "mode" to mode, "hash" to hash)
     ).text
+}
+
+fun ExtractorApi.fixUrl(url: String): String {
+    if (url.startsWith("http") ||
+        // Do not fix JSON objects when passed as urls.
+        url.startsWith("{\"")
+    ) {
+        return url
+    }
+    if (url.isEmpty()) {
+        return ""
+    }
+
+    val startsWithNoHttp = url.startsWith("//")
+    if (startsWithNoHttp) {
+        return "https:$url"
+    } else {
+        if (url.startsWith('/')) {
+            return mainUrl + url
+        }
+        return "$mainUrl/$url"
+    }
 }
 
 abstract class ExtractorApi {

@@ -88,6 +88,7 @@ data class ResultData(
     var syncData: Map<String, String>,
 
     val posterImage: UiImage?,
+    val posterBackgroundImage: UiImage?,
     val plotText: UiText,
     val apiName: UiText,
     val ratingText: UiText?,
@@ -169,6 +170,9 @@ fun LoadResponse.toResultData(repo: APIRepository): ResultData {
         nextAiringEpisode = nextAiringEpisode,
         posterImage = img(
             posterUrl, posterHeaders
+        ) ?: img(R.drawable.default_cover),
+        posterBackgroundImage = img(
+            backgroundPosterUrl ?: posterUrl, posterHeaders
         ) ?: img(R.drawable.default_cover),
         titleText = txt(name),
         url = url,
@@ -410,6 +414,29 @@ class ResultViewModel2 : ViewModel() {
         private fun List<SeasonData>?.getSeason(season: Int?): SeasonData? {
             if (season == null) return null
             return this?.firstOrNull { it.season == season }
+        }
+
+        fun updateWatchStatus(currentResponse: LoadResponse, status: WatchType) {
+            val currentId = currentResponse.getId()
+            val resultPage = currentResponse
+
+            DataStoreHelper.setResultWatchState(currentId, status.internalId)
+            val current = DataStoreHelper.getBookmarkedData(currentId)
+            val currentTime = System.currentTimeMillis()
+            DataStoreHelper.setBookmarkedData(
+                currentId,
+                DataStoreHelper.BookmarkedData(
+                    currentId,
+                    current?.bookmarkedTime ?: currentTime,
+                    currentTime,
+                    resultPage.name,
+                    resultPage.url,
+                    resultPage.apiName,
+                    resultPage.type,
+                    resultPage.posterUrl,
+                    resultPage.year
+                )
+            )
         }
 
         private fun filterName(name: String?): String? {
@@ -764,28 +791,10 @@ class ResultViewModel2 : ViewModel() {
     private val _selectPopup: MutableLiveData<Some<SelectPopup>> = MutableLiveData(Some.None)
     val selectPopup: LiveData<Some<SelectPopup>> get() = _selectPopup
 
-    fun updateWatchStatus(status: WatchType) {
-        val currentId = currentId ?: return
-        val resultPage = currentResponse ?: return
-        _watchStatus.postValue(status)
 
-        DataStoreHelper.setResultWatchState(currentId, status.internalId)
-        val current = DataStoreHelper.getBookmarkedData(currentId)
-        val currentTime = System.currentTimeMillis()
-        DataStoreHelper.setBookmarkedData(
-            currentId,
-            DataStoreHelper.BookmarkedData(
-                currentId,
-                current?.bookmarkedTime ?: currentTime,
-                currentTime,
-                resultPage.name,
-                resultPage.url,
-                resultPage.apiName,
-                resultPage.type,
-                resultPage.posterUrl,
-                resultPage.year
-            )
-        )
+    fun updateWatchStatus(status: WatchType) {
+        updateWatchStatus(currentResponse ?: return, status)
+        _watchStatus.postValue(status)
     }
 
     private fun startChromecast(
@@ -1573,7 +1582,6 @@ class ResultViewModel2 : ViewModel() {
             return
         }
 
-        val episodes = currentEpisodes[indexer]
         val ranges = currentRanges[indexer]
 
         if (ranges?.contains(range) != true) {
@@ -1585,7 +1593,6 @@ class ResultViewModel2 : ViewModel() {
             }
         }
 
-        val size = episodes?.size
         val isMovie = currentResponse?.isMovie() == true
         currentIndex = indexer
         currentRange = range
@@ -1595,6 +1602,7 @@ class ResultViewModel2 : ViewModel() {
             text to r
         } ?: emptyList())
 
+        val size = currentEpisodes[indexer]?.size
         _episodesCountText.postValue(
             some(
                 if (isMovie) null else
@@ -1672,11 +1680,14 @@ class ResultViewModel2 : ViewModel() {
         preferDubStatus = indexer.dubStatus
 
         generator = if (isMovie) {
-            getMovie()?.let { RepoLinkGenerator(listOf(it)) }
+            getMovie()?.let { RepoLinkGenerator(listOf(it), page = currentResponse) }
         } else {
-            episodes?.let { list ->
-                RepoLinkGenerator(list)
-            }
+            val episodes = currentEpisodes.filter { it.key.dubStatus == indexer.dubStatus }
+                .toList()
+                .sortedBy { it.first.season }
+                .flatMap { it.second }
+
+            RepoLinkGenerator(episodes, page = currentResponse)
         }
 
         if (isMovie) {
@@ -1967,7 +1978,7 @@ class ResultViewModel2 : ViewModel() {
     ): List<ExtractedTrailerData> =
         coroutineScope {
             var currentCount = 0
-            return@coroutineScope loadResponse.trailers.apmap { trailerData ->
+            return@coroutineScope loadResponse.trailers.amap { trailerData ->
                 try {
                     val links = arrayListOf<ExtractorLink>()
                     val subs = arrayListOf<SubtitleFile>()

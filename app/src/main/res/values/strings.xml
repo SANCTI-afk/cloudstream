@@ -6,6 +6,7 @@
     <string name="search_types_list_key" translatable="false">search_type_list</string>
     <string name="auto_update_key" translatable="false">auto_update</string>
     <string name="auto_update_plugins_key" translatable="false">auto_update_plugins</string>
+    <string name="auto_download_plugins_key" translatable="false">auto_download_plugins_key</string>
     <string name="skip_update_key" translatable="false">skip_update_key</string>
     <string name="prerelease_update_key" translatable="false">prerelease_update</string>
     <string name="manual_check_update_key" translatable="false">manual_check_update</string>
@@ -28,7 +29,7 @@
     <string name="pip_enabled_key" translatable="false">pip_enabled_key</string>
     <string name="double_tap_enabled_key" translatable="false">double_tap_enabled_key</string>
     <string name="double_tap_pause_enabled_key" translatable="false">double_tap_pause_enabled_key</string>
-    <string name="double_tap_seek_time_key" translatable="false">double_tap_seek_time_key</string>
+    <string name="double_tap_seek_time_key" translatable="false">double_tap_seek_time_key2</string>
     <string name="swipe_vertical_enabled_key" translatable="false">swipe_vertical_enabled_key</string>
     <string name="autoplay_next_key" translatable="false">autoplay_next_key</string>
     <string name="display_sub_key" translatable="false">display_sub_key</string>
@@ -57,6 +58,7 @@
     <string name="filter_sub_lang_key" translatable="false">filter_sub_lang_key</string>
     <string name="pref_filter_search_quality_key" translatable="false">pref_filter_search_quality_key</string>
     <string name="enable_nsfw_on_providers_key" translatable="false">enable_nsfw_on_providers_key</string>
+    <string name="enable_skip_op_from_database" translatable="false">enable_skip_op_from_database</string>
 
     <!-- FORMAT MIGHT TRANSLATE, WILL CAUSE CRASH IF APPLIED WRONG -->
     <string name="extra_info_format" formatted="true" translatable="false">%d %s | %s</string>
@@ -268,6 +270,7 @@
     <string name="pref_filter_search_quality">Hide selected video quality on Search results</string>
 
     <string name="automatic_plugin_updates">Automatic plugin updates</string>
+    <string name="automatic_plugin_download">Automatically download plugins</string>
     <string name="updates_settings">Show app updates</string>
     <string name="updates_settings_des">Automatically search for new updates on start</string>
     <string name="uprereleases_settings">Update to prereleases</string>
@@ -602,7 +605,7 @@
     <string name="plugins_disabled" formatted="true">Disabled: %d</string>
     <string name="plugins_not_downloaded" formatted="true">Not downloaded: %d</string>
     <string name="plugins_updated" formatted="true">Updated %d plugins</string>
-    <string name="blank_repo_message">Add a repository to install site extensions</string>
+    <string name="blank_repo_message">CloudStream has no sites installed by default. You need to install the sites from repositories.\n\nBecause of a brainless DMCA takedown by Sky Uk Limited 🤮 we cannot link the repository sites in app.\n\nJoin our discord for links or search online.</string>
     <string name="view_public_repositories_button">View community repositories</string>
     <string name="view_public_repositories_button_short">Public list</string>
     <string name="uppercase_all_subtitles">Uppercase all subtitles</string>
@@ -637,4 +640,19 @@
     <string name="player_settings_play_in_web">Web Video Cast</string>
     <string name="player_settings_play_in_browser">Browser</string>
     <string name="app_not_found_error">App not found</string>
+    <string name="all_languages_preference">All Languages</string>
+
+    <string name="skip_type_format" formatted="true">Skip %s</string>
+    <string name="skip_type_op">Opening</string>
+    <string name="skip_type_ed">Ending</string>
+    <string name="skip_type_recap">Recap</string>
+    <string name="skip_type_mixed_ed">Mixed ending</string>
+    <string name="skip_type_mixed_op">Mixed opening</string>
+    <string name="skip_type_creddits">Credits</string>
+    <string name="skip_type_intro">Intro</string>
+
+    <string name="clear_history">Clear history</string>
+    <string name="history">History</string>
+    <string name="enable_skip_op_from_database_des">Show skip popups for opening/ending</string>
+    <string name="clipboard_too_large">Too much text. Unable to save to clipboard.</string>
 </resources>
