@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.preference.PreferenceManager
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.USER_AGENT
-import com.lagradost.cloudstream3.mvvm.normalSafeApiCall
+import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.nicehttp.Requests
 import com.lagradost.nicehttp.ignoreAllSSLErrors
 import okhttp3.Cache
@@ -15,11 +15,16 @@ import org.conscrypt.Conscrypt
 import java.io.File
 import java.security.Security
 
-fun Requests.initClient(context: Context): OkHttpClient {
-    normalSafeApiCall { Security.insertProviderAt(Conscrypt.newProvider(), 1) }
+fun Requests.initClient(context: Context) {
+    this.baseClient = buildDefaultClient(context)
+}
+
+fun buildDefaultClient(context: Context): OkHttpClient {
+    safe { Security.insertProviderAt(Conscrypt.newProvider(), 1) }
+    
     val settingsManager = PreferenceManager.getDefaultSharedPreferences(context)
     val dns = settingsManager.getInt(context.getString(R.string.dns_pref), 0)
-    baseClient = OkHttpClient.Builder()
+    val baseClient = OkHttpClient.Builder()
         .followRedirects(true)
         .followSslRedirects(true)
         .ignoreAllSSLErrors()
@@ -38,6 +43,8 @@ fun Requests.initClient(context: Context): OkHttpClient {
                 4 -> addAdGuardDns()
                 5 -> addDNSWatchDns()
                 6 -> addQuad9Dns()
+                7 -> addDnsSbDns()
+                8 -> addCanadianShieldDns()
             }
         }
         // Needs to be build as otherwise the other builders will change this object

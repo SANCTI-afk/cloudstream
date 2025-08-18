@@ -2,6 +2,7 @@ package com.lagradost.cloudstream3
 
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
@@ -10,7 +11,7 @@ import java.util.concurrent.TimeUnit
 
 
 class DownloaderTestImpl private constructor(builder: OkHttpClient.Builder) : Downloader() {
-    private val client: OkHttpClient
+    private val client: OkHttpClient = builder.readTimeout(30, TimeUnit.SECONDS).build()
     override fun execute(request: Request): Response {
         val httpMethod: String = request.httpMethod()
         val url: String = request.url()
@@ -18,7 +19,7 @@ class DownloaderTestImpl private constructor(builder: OkHttpClient.Builder) : Do
         val dataToSend: ByteArray? = request.dataToSend()
         var requestBody: RequestBody? = null
         if (dataToSend != null) {
-            requestBody = RequestBody.create(null, dataToSend)
+            requestBody = dataToSend.toRequestBody(null, 0, dataToSend.size)
         }
         val requestBuilder: okhttp3.Request.Builder = okhttp3.Request.Builder()
             .method(httpMethod, requestBody).url(url)
@@ -50,7 +51,7 @@ class DownloaderTestImpl private constructor(builder: OkHttpClient.Builder) : Do
 
     companion object {
         private const val USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; rv:91.0) Gecko/20100101 Firefox/91.0"
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
         private var instance: DownloaderTestImpl? = null
 
         /**
@@ -72,9 +73,5 @@ class DownloaderTestImpl private constructor(builder: OkHttpClient.Builder) : Do
             }
             return instance
         }
-    }
-
-    init {
-        client = builder.readTimeout(30, TimeUnit.SECONDS).build()
     }
 }

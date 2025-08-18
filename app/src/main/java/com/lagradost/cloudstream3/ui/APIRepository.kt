@@ -1,19 +1,36 @@
 package com.lagradost.cloudstream3.ui
 
-import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.APIHolder.unixTime
 import com.lagradost.cloudstream3.APIHolder.unixTimeMS
+import com.lagradost.cloudstream3.DubStatus
+import com.lagradost.cloudstream3.ErrorLoadingException
+import com.lagradost.cloudstream3.HomePageResponse
+import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.MainActivity.Companion.afterPluginsLoadedEvent
+import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.mvvm.Resource
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.mvvm.safeApiCall
+import com.lagradost.cloudstream3.utils.Coroutines.threadSafeListOf
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.GlobalScope.coroutineContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 
 class APIRepository(val api: MainAPI) {
     companion object {
+        // 2 minute timeout to prevent bad extensions/extractors from hogging the resources
+        // No real provider should take longer, so we hard kill them.
+        private const val DEFAULT_TIMEOUT = 120_000L
+        private const val MAX_TIMEOUT = 4*DEFAULT_TIMEOUT
+        private const val MIN_TIMEOUT = 5_000L
+
         var dubStatusActive = HashSet<DubStatus>()
 
         val noneApi = object : MainAPI() {
@@ -31,27 +48,72 @@ class APIRepository(val api: MainAPI) {
             return data.isEmpty() || data == "[]" || data == "about:blank"
         }
 
-        private val cacheHash: HashMap<Pair<String, String>, LoadResponse> = hashMapOf()
+        data class SavedLoadResponse(
+            val unixTime: Long,
+            val response: LoadResponse,
+            val hash: Pair<String, String>
+        )
+
+        private val cache = threadSafeListOf<SavedLoadResponse>()
+        private var cacheIndex: Int = 0
+        const val CACHE_SIZE = 20
+
+        fun getTimeout(desired : Long?) : Long {
+             return (desired ?: DEFAULT_TIMEOUT).coerceIn(MIN_TIMEOUT, MAX_TIMEOUT)
+        }
+    }
+
+    private fun afterPluginsLoaded(forceReload: Boolean) {
+        if (forceReload) {
+            synchronized(cache) {
+                cache.clear()
+            }
+        }
+    }
+
+    init {
+        afterPluginsLoadedEvent += ::afterPluginsLoaded
     }
 
     val hasMainPage = api.hasMainPage
+    val providerType = api.providerType
     val name = api.name
     val mainUrl = api.mainUrl
     val mainPage = api.mainPage
     val hasQuickSearch = api.hasQuickSearch
     val vpnStatus = api.vpnStatus
-    val providerType = api.providerType
 
     suspend fun load(url: String): Resource<LoadResponse> {
         return safeApiCall {
-            if (isInvalidData(url)) throw ErrorLoadingException()
-            val fixedUrl = api.fixUrl(url)
-            val key = Pair(api.name, url)
-            cacheHash[key] ?: api.load(fixedUrl)?.also {
-                // we cache 20 responses because ppl often go back to the same shit + 20 because I dont want to cause too much memory leak
-                if (cacheHash.size > 20) cacheHash.remove(cacheHash.keys.random())
-                cacheHash[key] = it
-            } ?: throw ErrorLoadingException()
+            withTimeout(getTimeout(api.loadTimeoutMs)) {
+                if (isInvalidData(url)) throw ErrorLoadingException()
+                val fixedUrl = api.fixUrl(url)
+                val lookingForHash = Pair(api.name, fixedUrl)
+
+                synchronized(cache) {
+                    for (item in cache) {
+                        // 10 min save
+                        if (item.hash == lookingForHash && (unixTime - item.unixTime) < 60 * 10) {
+                            return@withTimeout item.response
+                        }
+                    }
+                }
+
+                api.load(fixedUrl)?.also { response ->
+                    // Remove all blank tags as early as possible
+                    response.tags = response.tags?.filter { it.isNotBlank() }
+                    val add = SavedLoadResponse(unixTime, response, lookingForHash)
+
+                    synchronized(cache) {
+                        if (cache.size > CACHE_SIZE) {
+                            cache[cacheIndex] = add // rolling cache
+                            cacheIndex = (cacheIndex + 1) % CACHE_SIZE
+                        } else {
+                            cache.add(add)
+                        }
+                    }
+                } ?: throw ErrorLoadingException()
+            }
         }
     }
 
@@ -60,10 +122,12 @@ class APIRepository(val api: MainAPI) {
             return Resource.Success(emptyList())
 
         return safeApiCall {
-            return@safeApiCall (api.search(query)
-                ?: throw ErrorLoadingException())
-//                .filter { typesActive.contains(it.type) }
-                .toList()
+            withTimeout(getTimeout(api.searchTimeoutMs)) {
+                (api.search(query)
+                    ?: throw ErrorLoadingException())
+            //                .filter { typesActive.contains(it.type) }
+                    .toList()
+            }
         }
     }
 
@@ -72,7 +136,9 @@ class APIRepository(val api: MainAPI) {
             return Resource.Success(emptyList())
 
         return safeApiCall {
-            api.quickSearch(query) ?: throw ErrorLoadingException()
+            withTimeout(getTimeout(api.quickSearchTimeoutMs)) {
+                api.quickSearch(query) ?: throw ErrorLoadingException()
+            }
         }
     }
 
@@ -82,41 +148,42 @@ class APIRepository(val api: MainAPI) {
         delay(delta)
     }
 
-    @OptIn(DelicateCoroutinesApi::class)
     suspend fun getMainPage(page: Int, nameIndex: Int? = null): Resource<List<HomePageResponse?>> {
         return safeApiCall {
-            api.lastHomepageRequest = unixTimeMS
+            withTimeout(getTimeout(api.getMainPageTimeoutMs)) {
+                api.lastHomepageRequest = unixTimeMS
 
-            nameIndex?.let { api.mainPage.getOrNull(it) }?.let { data ->
-                listOf(
-                    api.getMainPage(
-                        page,
-                        MainPageRequest(data.name, data.data, data.horizontalImages)
-                    )
-                )
-            } ?: run {
-                if (api.sequentialMainPage) {
-                    var first = true
-                    api.mainPage.map { data ->
-                        if (!first) // dont want to sleep on first request
-                            delay(api.sequentialMainPageDelay)
-                        first = false
-
+                nameIndex?.let { api.mainPage.getOrNull(it) }?.let { data ->
+                    listOf(
                         api.getMainPage(
                             page,
                             MainPageRequest(data.name, data.data, data.horizontalImages)
                         )
-                    }
-                } else {
-                    with(CoroutineScope(coroutineContext)) {
+                    )
+                } ?: run {
+                    if (api.sequentialMainPage) {
+                        var first = true
                         api.mainPage.map { data ->
-                            async {
-                                api.getMainPage(
-                                    page,
-                                    MainPageRequest(data.name, data.data, data.horizontalImages)
-                                )
-                            }
-                        }.map { it.await() }
+                            if (!first) // dont want to sleep on first request
+                                delay(api.sequentialMainPageDelay)
+                            first = false
+
+                            api.getMainPage(
+                                page,
+                                MainPageRequest(data.name, data.data, data.horizontalImages)
+                            )
+                        }
+                    } else {
+                        with(CoroutineScope(coroutineContext)) {
+                            api.mainPage.map { data ->
+                                async {
+                                    api.getMainPage(
+                                        page,
+                                        MainPageRequest(data.name, data.data, data.horizontalImages)
+                                    )
+                                }
+                            }.map { it.await() }
+                        }
                     }
                 }
             }
@@ -133,11 +200,13 @@ class APIRepository(val api: MainAPI) {
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
+        callback: (ExtractorLink) -> Unit,
     ): Boolean {
         if (isInvalidData(data)) return false // this makes providers cleaner
         return try {
-            api.loadLinks(data, isCasting, subtitleCallback, callback)
+            withTimeout(getTimeout(api.loadLinksTimeoutMs)) {
+                api.loadLinks(data, isCasting, subtitleCallback, callback)
+            }
         } catch (throwable: Throwable) {
             logError(throwable)
             return false

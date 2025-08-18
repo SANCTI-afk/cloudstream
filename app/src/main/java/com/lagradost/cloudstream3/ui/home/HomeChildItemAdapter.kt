@@ -3,144 +3,191 @@ package com.lagradost.cloudstream3.ui.home
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.RecyclerView
+import androidx.fragment.app.Fragment
+import androidx.preference.PreferenceManager
+import androidx.viewbinding.ViewBinding
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.databinding.HomeRemoveGridBinding
+import com.lagradost.cloudstream3.databinding.HomeRemoveGridExpandedBinding
+import com.lagradost.cloudstream3.databinding.HomeResultGridBinding
+import com.lagradost.cloudstream3.databinding.HomeResultGridExpandedBinding
+import com.lagradost.cloudstream3.ui.BaseAdapter
+import com.lagradost.cloudstream3.ui.ViewHolderState
+import com.lagradost.cloudstream3.ui.search.SEARCH_ACTION_LOAD
 import com.lagradost.cloudstream3.ui.search.SearchClickCallback
 import com.lagradost.cloudstream3.ui.search.SearchResultBuilder
-import com.lagradost.cloudstream3.utils.UIHelper.IsBottomLayout
+import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
+import com.lagradost.cloudstream3.ui.settings.Globals.TV
+import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
+import com.lagradost.cloudstream3.utils.UIHelper.isBottomLayout
 import com.lagradost.cloudstream3.utils.UIHelper.toPx
-import kotlinx.android.synthetic.main.home_result_grid.view.background_card
-import kotlinx.android.synthetic.main.home_result_grid_expanded.view.*
 
-class HomeChildItemAdapter(
-    val cardList: MutableList<SearchResponse>,
-    private val overrideLayout: Int? = null,
-    private val nextFocusUp: Int? = null,
-    private val nextFocusDown: Int? = null,
-    private val clickCallback: (SearchClickCallback) -> Unit,
-) :
-    RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-    var isHorizontal: Boolean = false
-    var hasNext: Boolean = false
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-        val layout = overrideLayout
-            ?: if (parent.context.IsBottomLayout()) R.layout.home_result_grid_expanded else R.layout.home_result_grid
-
-        return CardViewHolder(
-            LayoutInflater.from(parent.context).inflate(layout, parent, false),
-            clickCallback,
-            itemCount,
-            nextFocusUp,
-            nextFocusDown,
-            isHorizontal
-        )
-    }
-
-    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        when (holder) {
-            is CardViewHolder -> {
-                holder.itemCount = itemCount // i know ugly af
-                holder.bind(cardList[position], position)
+class HomeScrollViewHolderState(view: ViewBinding) : ViewHolderState<Boolean>(view) {
+    // very shitty that we cant store the state when the view clears,
+    // but this is because the focus clears before the view is removed
+    // so we have to manually store it
+    var wasFocused: Boolean = false
+    override fun save(): Boolean = wasFocused
+    override fun restore(state: Boolean) {
+        if (state) {
+            wasFocused = false
+            // only refocus if tv
+            if (isLayout(TV)) {
+                itemView.requestFocus()
             }
-        }
-    }
-
-    override fun getItemCount(): Int {
-        return cardList.size
-    }
-
-    override fun getItemId(position: Int): Long {
-        return (cardList[position].id ?: position).toLong()
-    }
-
-    fun updateList(newList: List<SearchResponse>) {
-        val diffResult = DiffUtil.calculateDiff(
-            HomeChildDiffCallback(this.cardList, newList)
-        )
-
-        cardList.clear()
-        cardList.addAll(newList)
-
-        diffResult.dispatchUpdatesTo(this)
-    }
-
-    class CardViewHolder
-    constructor(
-        itemView: View,
-        private val clickCallback: (SearchClickCallback) -> Unit,
-        var itemCount: Int,
-        private val nextFocusUp: Int? = null,
-        private val nextFocusDown: Int? = null,
-        private val isHorizontal: Boolean = false
-    ) :
-        RecyclerView.ViewHolder(itemView) {
-
-        fun bind(card: SearchResponse, position: Int) {
-
-            // TV focus fixing
-            val nextFocusBehavior = when (position) {
-                0 -> true
-                itemCount - 1 -> false
-                else -> null
-            }
-
-            (itemView.image_holder ?: itemView.background_card)?.apply {
-                val min = 114.toPx
-                val max = 180.toPx
-
-                layoutParams =
-                    layoutParams.apply {
-                        width = if (!isHorizontal) {
-                            min
-                        } else {
-                            max
-                        }
-                        height = if (!isHorizontal) {
-                            max
-                        } else {
-                            min
-                        }
-                    }
-            }
-
-
-            SearchResultBuilder.bind(
-                clickCallback,
-                card,
-                position,
-                itemView,
-                nextFocusBehavior,
-                nextFocusUp,
-                nextFocusDown
-            )
-            itemView.tag = position
-
-            if (position == 0) { // to fix tv
-                itemView.background_card?.nextFocusLeftId = R.id.nav_rail_view
-            }
-            //val ani = ScaleAnimation(0.9f, 1.0f, 0.9f, 1f)
-            //ani.fillAfter = true
-            //ani.duration = 200
-            //itemView.startAnimation(ani)
         }
     }
 }
 
-class HomeChildDiffCallback(
-    private val oldList: List<SearchResponse>,
-    private val newList: List<SearchResponse>
+class ResumeItemAdapter(
+    fragment: Fragment,
+    nextFocusUp: Int? = null,
+    nextFocusDown: Int? = null,
+    clickCallback: (SearchClickCallback) -> Unit,
+    private val removeCallback: (View) -> Unit,
+) : HomeChildItemAdapter(
+    fragment = fragment,
+    id = "resumeAdapter".hashCode(),
+    nextFocusUp = nextFocusUp,
+    nextFocusDown = nextFocusDown,
+    clickCallback = clickCallback
+) {
+    // As there is no popup on TV we instead use the footer to clear
+    override val footers = if (isLayout(TV or EMULATOR)) 1 else 0
+
+    override fun onCreateFooter(parent: ViewGroup): ViewHolderState<Boolean> {
+        val expanded = parent.context.isBottomLayout()
+        val inflater = LayoutInflater.from(parent.context)
+        val binding = if (expanded) HomeRemoveGridExpandedBinding.inflate(
+            inflater,
+            parent,
+            false
+        ) else HomeRemoveGridBinding.inflate(inflater, parent, false)
+        return HomeScrollViewHolderState(binding)
+    }
+
+    override fun onBindFooter(holder: ViewHolderState<Boolean>) {
+        this.applyBinding(holder, false)
+        holder.itemView.apply {
+            if (isLayout(TV)) {
+                isFocusableInTouchMode = true
+                isFocusable = true
+            }
+
+            if (nextFocusUp != null) {
+                nextFocusUpId = nextFocusUp
+            }
+
+            if (nextFocusDown != null) {
+                nextFocusDownId = nextFocusDown
+            }
+
+            setOnClickListener { v ->
+                removeCallback.invoke(v ?: return@setOnClickListener)
+            }
+        }
+    }
+}
+
+open class HomeChildItemAdapter(
+    fragment: Fragment,
+    id: Int,
+    protected val nextFocusUp: Int? = null,
+    protected val nextFocusDown: Int? = null,
+    private val clickCallback: (SearchClickCallback) -> Unit,
 ) :
-    DiffUtil.Callback() {
-    override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
-        oldList[oldItemPosition].name == newList[newItemPosition].name
+    BaseAdapter<SearchResponse, Boolean>(fragment, id) {
+    var isHorizontal: Boolean = false
+    var hasNext: Boolean = false
 
-    override fun getOldListSize() = oldList.size
+    override fun onCreateContent(parent: ViewGroup): ViewHolderState<Boolean> {
+        val expanded = parent.context.isBottomLayout()
+        val inflater = LayoutInflater.from(parent.context)
+        val binding = if (expanded) HomeResultGridExpandedBinding.inflate(
+            inflater,
+            parent,
+            false
+        ) else HomeResultGridBinding.inflate(inflater, parent, false)
+        return HomeScrollViewHolderState(binding)
+    }
 
-    override fun getNewListSize() = newList.size
+    protected fun applyBinding(holder: ViewHolderState<Boolean>, isFirstItem: Boolean) {
+        val context = holder.view.root.context
+        val scale = PreferenceManager.getDefaultSharedPreferences(context)
+            ?.getInt(context.getString(R.string.poster_size_key), 0) ?: 0
+        // Scale by +10% per step
+        val mul = 1.0f + scale * 0.1f
+        val min = (114.toPx.toFloat() * mul).toInt()
+        val max = (180.toPx.toFloat() * mul).toInt()
 
-    override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
-        oldList[oldItemPosition] == newList[newItemPosition] && oldItemPosition < oldList.size - 1 // always update the last item
+        when (val binding = holder.view) {
+            is HomeResultGridBinding -> {
+                binding.backgroundCard.apply {
+
+                    layoutParams =
+                        layoutParams.apply {
+                            width = if (!isHorizontal) {
+                                min
+                            } else {
+                                max
+                            }
+                            height = if (!isHorizontal) {
+                                max
+                            } else {
+                                min
+                            }
+                        }
+                }
+            }
+
+            is HomeResultGridExpandedBinding -> {
+                binding.backgroundCard.apply {
+
+                    layoutParams =
+                        layoutParams.apply {
+                            width = if (!isHorizontal) {
+                                min
+                            } else {
+                                max
+                            }
+                            height = if (!isHorizontal) {
+                                max
+                            } else {
+                                min
+                            }
+                        }
+                }
+
+                if (isFirstItem) { // to fix tv
+                    binding.backgroundCard.nextFocusLeftId = R.id.nav_rail_view
+                }
+            }
+        }
+    }
+
+    override fun onBindContent(
+        holder: ViewHolderState<Boolean>,
+        item: SearchResponse,
+        position: Int
+    ) {
+        applyBinding(holder, position == 0)
+
+        SearchResultBuilder.bind(
+            clickCallback = { click ->
+                // ok, so here we hijack the callback to fix the focus
+                when (click.action) {
+                    SEARCH_ACTION_LOAD -> (holder as? HomeScrollViewHolderState)?.wasFocused = true
+                }
+                clickCallback(click)
+            },
+            item,
+            position,
+            holder.itemView,
+            nextFocusUp,
+            nextFocusDown
+        )
+
+        holder.itemView.tag = position
+    }
 }

@@ -1,49 +1,61 @@
 package com.lagradost.cloudstream3.ui.player
 
 import android.annotation.SuppressLint
-import android.content.*
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.AnimatedVectorDrawable
 import android.media.metrics.PlaybackErrorEvent
 import android.os.Build
 import android.os.Bundle
-import android.support.v4.media.session.MediaSessionCompat
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.annotation.LayoutRes
 import androidx.annotation.StringRes
+import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
-import androidx.media.session.MediaButtonReceiver
+import androidx.media3.common.PlaybackException
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaSession
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.DefaultTimeBar
+import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
+import androidx.media3.ui.TimeBar
 import androidx.preference.PreferenceManager
 import androidx.vectordrawable.graphics.drawable.AnimatedVectorDrawableCompat
-import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.PlaybackException
-import com.google.android.exoplayer2.ext.mediasession.MediaSessionConnector
-import com.google.android.exoplayer2.ui.AspectRatioFrameLayout
-import com.google.android.exoplayer2.ui.SubtitleView
-import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
-import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
+import com.github.rubensousa.previewseekbar.PreviewBar
+import com.github.rubensousa.previewseekbar.media3.PreviewTimeBar
 import com.lagradost.cloudstream3.CommonActivity.canEnterPipMode
 import com.lagradost.cloudstream3.CommonActivity.isInPIPMode
 import com.lagradost.cloudstream3.CommonActivity.keyEventListener
 import com.lagradost.cloudstream3.CommonActivity.playerEventListener
+import com.lagradost.cloudstream3.CommonActivity.screenWidth
 import com.lagradost.cloudstream3.CommonActivity.showToast
+import com.lagradost.cloudstream3.ErrorLoadingException
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.mvvm.logError
+import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.cloudstream3.ui.subtitles.SaveCaptionStyle
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment
-import com.lagradost.cloudstream3.utils.AppUtils
-import com.lagradost.cloudstream3.utils.AppUtils.requestLocalAudioFocus
+import com.lagradost.cloudstream3.utils.AppContextUtils
+import com.lagradost.cloudstream3.utils.AppContextUtils.requestLocalAudioFocus
+import com.lagradost.cloudstream3.utils.DataStoreHelper
 import com.lagradost.cloudstream3.utils.EpisodeSkip
 import com.lagradost.cloudstream3.utils.UIHelper
 import com.lagradost.cloudstream3.utils.UIHelper.hideSystemUI
 import com.lagradost.cloudstream3.utils.UIHelper.popCurrentPage
-import kotlinx.android.synthetic.main.fragment_player.*
-import kotlinx.android.synthetic.main.player_custom_layout.*
+import java.net.SocketTimeoutException
 
 enum class PlayerResize(@StringRes val nameRes: Int) {
     Fit(R.string.resize_fit),
@@ -64,17 +76,22 @@ const val NEXT_WATCH_EPISODE_PERCENTAGE = 90
 const val UPDATE_SYNC_PROGRESS_PERCENTAGE = 80
 
 abstract class AbstractPlayerFragment(
-    val player: IPlayer = CS3IPlayer()
+    var player: IPlayer = CS3IPlayer()
 ) : Fragment() {
     var resizeMode: Int = 0
-    var subStyle: SaveCaptionStyle? = null
     var subView: SubtitleView? = null
     var isBuffering = true
     protected open var hasPipModeSupport = true
 
+    var playerPausePlayHolderHolder: FrameLayout? = null
+    var playerPausePlay: ImageView? = null
+    var playerBuffering: ProgressBar? = null
+    var playerView: PlayerView? = null
+    var piphide: FrameLayout? = null
+    var subtitleHolder: FrameLayout? = null
 
     @LayoutRes
-    protected var layout: Int = R.layout.fragment_player
+    protected open var layout: Int = R.layout.fragment_player
 
     open fun nextEpisode() {
         throw NotImplementedError()
@@ -84,11 +101,13 @@ abstract class AbstractPlayerFragment(
         throw NotImplementedError()
     }
 
-    open fun playerPositionChanged(posDur: Pair<Long, Long>) {
+    open fun playerPositionChanged(position: Long, duration: Long) {
         throw NotImplementedError()
     }
 
-    open fun playerDimensionsLoaded(widthHeight: Pair<Int, Int>) {
+    open fun playerStatusChanged() {}
+
+    open fun playerDimensionsLoaded(width: Int, height: Int) {
         throw NotImplementedError()
     }
 
@@ -124,8 +143,10 @@ abstract class AbstractPlayerFragment(
         }
     }
 
-    private fun updateIsPlaying(playing: Pair<CSPlayerLoading, CSPlayerLoading>) {
-        val (wasPlaying, isPlaying) = playing
+    private fun updateIsPlaying(
+        wasPlaying: CSPlayerLoading,
+        isPlaying: CSPlayerLoading
+    ) {
         val isPlayingRightNow = CSPlayerLoading.IsPlaying == isPlaying
         val isPausedRightNow = CSPlayerLoading.IsPaused == isPlaying
 
@@ -133,15 +154,15 @@ abstract class AbstractPlayerFragment(
 
         isBuffering = CSPlayerLoading.IsBuffering == isPlaying
         if (isBuffering) {
-            player_pause_play_holder_holder?.isVisible = false
-            player_buffering?.isVisible = true
+            playerPausePlayHolderHolder?.isVisible = false
+            playerBuffering?.isVisible = true
         } else {
-            player_pause_play_holder_holder?.isVisible = true
-            player_buffering?.isVisible = false
+            playerPausePlayHolderHolder?.isVisible = true
+            playerBuffering?.isVisible = false
 
             if (wasPlaying != isPlaying) {
-                player_pause_play?.setImageResource(if (isPlayingRightNow) R.drawable.play_to_pause else R.drawable.pause_to_play)
-                val drawable = player_pause_play?.drawable
+                playerPausePlay?.setImageResource(if (isPlayingRightNow) R.drawable.play_to_pause else R.drawable.pause_to_play)
+                val drawable = playerPausePlay?.drawable
 
                 var startedAnimation = false
                 if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
@@ -163,28 +184,33 @@ abstract class AbstractPlayerFragment(
 
                 // somehow the phone is wacked
                 if (!startedAnimation) {
-                    player_pause_play?.setImageResource(if (isPlayingRightNow) R.drawable.netflix_pause else R.drawable.netflix_play)
+                    playerPausePlay?.setImageResource(if (isPlayingRightNow) R.drawable.netflix_pause else R.drawable.netflix_play)
                 }
             } else {
-                player_pause_play?.setImageResource(if (isPlayingRightNow) R.drawable.netflix_pause else R.drawable.netflix_play)
+                playerPausePlay?.setImageResource(if (isPlayingRightNow) R.drawable.netflix_pause else R.drawable.netflix_play)
             }
         }
 
         canEnterPipMode = isPlayingRightNow && hasPipModeSupport
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPIPMode) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             activity?.let { act ->
-                PlayerPipHelper.updatePIPModeActions(act, isPlayingRightNow)
+                PlayerPipHelper.updatePIPModeActions(
+                    act,
+                    isPlayingRightNow,
+                    player.getAspectRatio()
+                )
             }
         }
     }
 
     private var pipReceiver: BroadcastReceiver? = null
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
         try {
             isInPIPMode = isInPictureInPictureMode
             if (isInPictureInPictureMode) {
                 // Hide the full-screen UI (controls, etc.) while in picture-in-picture mode.
-                player_holder?.alpha = 0f
+                piphide?.isVisible = false
                 pipReceiver = object : BroadcastReceiver() {
                     override fun onReceive(
                         context: Context,
@@ -194,28 +220,31 @@ abstract class AbstractPlayerFragment(
                             return
                         }
                         player.handleEvent(
-                            CSPlayerEvent.values()[intent.getIntExtra(
+                            CSPlayerEvent.entries[intent.getIntExtra(
                                 EXTRA_CONTROL_TYPE,
                                 0
-                            )]
+                            )], source = PlayerEventSource.UI
                         )
                     }
                 }
                 val filter = IntentFilter()
-                filter.addAction(
-                    ACTION_MEDIA_CONTROL
-                )
-                activity?.registerReceiver(pipReceiver, filter)
+                filter.addAction(ACTION_MEDIA_CONTROL)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    activity?.registerReceiver(pipReceiver, filter, Context.RECEIVER_EXPORTED)
+                } else activity?.registerReceiver(pipReceiver, filter)
                 val isPlaying = player.getIsPlaying()
                 val isPlayingValue =
                     if (isPlaying) CSPlayerLoading.IsPlaying else CSPlayerLoading.IsPaused
-                updateIsPlaying(Pair(isPlayingValue, isPlayingValue))
+                updateIsPlaying(isPlayingValue, isPlayingValue)
             } else {
                 // Restore the full-screen UI.
-                player_holder?.alpha = 1f
+                piphide?.isVisible = true
                 exitedPipMode()
                 pipReceiver?.let {
-                    activity?.unregisterReceiver(it)
+                    // Prevents java.lang.IllegalArgumentException: Receiver not registered
+                    safe {
+                        activity?.unregisterReceiver(it)
+                    }
                 }
                 activity?.hideSystemUI()
                 this.view?.let { UIHelper.hideKeyboard(it) }
@@ -235,22 +264,20 @@ abstract class AbstractPlayerFragment(
 
     private fun requestAudioFocus() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            activity?.requestLocalAudioFocus(AppUtils.getFocusRequest())
+            activity?.requestLocalAudioFocus(AppContextUtils.getFocusRequest())
         }
     }
 
-    open fun playerError(exception: Exception) {
+    open fun playerError(exception: Throwable) {
         fun showToast(message: String, gotoNext: Boolean = false) {
             if (gotoNext && hasNextMirror()) {
                 showToast(
-                    activity,
                     message,
                     Toast.LENGTH_SHORT
                 )
                 nextMirror()
             } else {
                 showToast(
-                    activity,
                     context?.getString(R.string.no_links_found_toast) + "\n" + message,
                     Toast.LENGTH_LONG
                 )
@@ -264,24 +291,56 @@ abstract class AbstractPlayerFragment(
                 val msg = exception.message ?: ""
                 val errorName = exception.errorCodeName
                 when (val code = exception.errorCode) {
-                    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND, PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED, PlaybackException.ERROR_CODE_IO_NO_PERMISSION, PlaybackException.ERROR_CODE_IO_UNSPECIFIED -> {
+                    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+                    PlaybackException.ERROR_CODE_IO_NO_PERMISSION,
+                    PlaybackException.ERROR_CODE_IO_UNSPECIFIED -> {
                         showToast(
                             "${ctx.getString(R.string.source_error)}\n$errorName ($code)\n$msg",
                             gotoNext = true
                         )
                     }
-                    PlaybackException.ERROR_CODE_REMOTE_ERROR, PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, PlaybackException.ERROR_CODE_TIMEOUT, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE -> {
+
+                    PlaybackException.ERROR_CODE_REMOTE_ERROR,
+                    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+                    PlaybackException.ERROR_CODE_TIMEOUT,
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+                    PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE -> {
                         showToast(
                             "${ctx.getString(R.string.remote_error)}\n$errorName ($code)\n$msg",
                             gotoNext = true
                         )
                     }
-                    PlaybackException.ERROR_CODE_DECODING_FAILED, PlaybackErrorEvent.ERROR_AUDIO_TRACK_INIT_FAILED, PlaybackErrorEvent.ERROR_AUDIO_TRACK_OTHER, PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED, PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED -> {
+
+                    PlaybackErrorEvent.ERROR_AUDIO_TRACK_INIT_FAILED,
+                    PlaybackErrorEvent.ERROR_AUDIO_TRACK_OTHER,
+                    PlaybackException.ERROR_CODE_DECODING_FAILED,
+                    PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED,
+                    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                    PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED -> {
                         showToast(
                             "${ctx.getString(R.string.render_error)}\n$errorName ($code)\n$msg",
                             gotoNext = true
                         )
                     }
+
+                    PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+                    PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES -> {
+                        showToast(
+                            "${ctx.getString(R.string.unsupported_error)}\n$errorName ($code)\n$msg",
+                            gotoNext = true
+                        )
+                    }
+
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+                    PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> {
+                        showToast(
+                            "${ctx.getString(R.string.encoding_error)}\n$errorName ($code)\n$msg",
+                            gotoNext = true
+                        )
+                    }
+
                     else -> {
                         showToast(
                             "${ctx.getString(R.string.unexpected_error)}\n$errorName ($code)\n$msg",
@@ -290,52 +349,82 @@ abstract class AbstractPlayerFragment(
                     }
                 }
             }
+
             is InvalidFileException -> {
                 showToast(
                     "${ctx.getString(R.string.source_error)}\n${exception.message}",
                     gotoNext = true
                 )
             }
+
+            is SocketTimeoutException -> {
+                /**
+                 * Ensures this is run on the UI thread to prevent issues
+                 * caused by SocketTimeoutException in torrents. Running
+                 * on another thread can break player interactions or
+                 * prevent switching to the next source.
+                 */
+                activity?.runOnUiThread {
+                    showToast(
+                        "${ctx.getString(R.string.remote_error)}\n${exception.message}",
+                        gotoNext = true
+                    )
+                }
+            }
+
+            is ErrorLoadingException -> {
+                exception.message?.let {
+                    showToast(
+                        it,
+                        gotoNext = true
+                    )
+                } ?: showToast(
+                    exception.toString(),
+                    gotoNext = true
+                )
+            }
+
             else -> {
                 exception.message?.let {
                     showToast(
                         it,
                         gotoNext = false
                     )
-                }
+                } ?: showToast(
+                    exception.toString(),
+                    gotoNext = false
+                )
             }
         }
     }
 
     private fun onSubStyleChanged(style: SaveCaptionStyle) {
-        if (player is CS3IPlayer) {
-            player.updateSubtitleStyle(style)
-        }
+        player.updateSubtitleStyle(style)
+        // Forcefully update the subtitle encoding in case the edge size is changed
+        player.seekTime(-1)
     }
 
-    private fun playerUpdated(player: Any?) {
+
+    @SuppressLint("UnsafeOptInUsageError")
+    open fun playerUpdated(player: Any?) {
         if (player is ExoPlayer) {
             context?.let { ctx ->
-                val mediaButtonReceiver = ComponentName(ctx, MediaButtonReceiver::class.java)
-                MediaSessionCompat(ctx, "Player", mediaButtonReceiver, null).let { media ->
-                    //media.setCallback(mMediaSessionCallback)
-                    //media.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
-                    val mediaSessionConnector = MediaSessionConnector(media)
-                    mediaSessionConnector.setPlayer(player)
-                    media.isActive = true
-                    mMediaSessionCompat = media
-                }
+                mMediaSession?.release()
+                mMediaSession = MediaSession.Builder(ctx, player)
+                    // Ensure unique ID for concurrent players
+                    .setId(System.currentTimeMillis().toString())
+                    .build()
             }
 
             // Necessary for multiple combined videos
-            player_view?.setShowMultiWindowTimeBar(true)
-            player_view?.player = player
-            player_view?.performClick()
+            @Suppress("DEPRECATION")
+            playerView?.setShowMultiWindowTimeBar(true)
+            playerView?.player = player
+            playerView?.performClick()
         }
     }
 
-    private var mediaSessionConnector: MediaSessionConnector? = null
-    private var mMediaSessionCompat: MediaSessionCompat? = null
+    protected var mMediaSession: MediaSession? = null
 
     // this can be used in the future for players other than exoplayer
     //private val mMediaSessionCallback: MediaSessionCompat.Callback = object : MediaSessionCompat.Callback() {
@@ -358,39 +447,195 @@ abstract class AbstractPlayerFragment(
     //    }
     //}
 
+    open fun onDownload(event: DownloadEvent) = Unit
 
-    @SuppressLint("SetTextI18n")
+    /** This receives the events from the player, if you want to append functionality you do it here,
+     * do note that this only receives events for UI changes,
+     * and returning early WONT stop it from changing in eg the player time or pause status */
+    open fun mainCallback(event: PlayerEvent) {
+        // we don't want to spam DownloadEvent
+        if (event !is DownloadEvent) {
+            Log.i(TAG, "Handle event: $event")
+        }
+        when (event) {
+            is DownloadEvent -> {
+                onDownload(event)
+            }
+
+            is ResizedEvent -> {
+                playerDimensionsLoaded(event.width, event.height)
+            }
+
+            is PlayerAttachedEvent -> {
+                playerUpdated(event.player)
+            }
+
+            is SubtitlesUpdatedEvent -> {
+                subtitlesChanged()
+            }
+
+            is TimestampSkippedEvent -> {
+                onTimestampSkipped(event.timestamp)
+            }
+
+            is TimestampInvokedEvent -> {
+                onTimestamp(event.timestamp)
+            }
+
+            is TracksChangedEvent -> {
+                onTracksInfoChanged()
+            }
+
+            is EmbeddedSubtitlesFetchedEvent -> {
+                embeddedSubtitlesFetched(event.tracks)
+            }
+
+            is ErrorEvent -> {
+                playerError(event.error)
+            }
+
+            is RequestAudioFocusEvent -> {
+                requestAudioFocus()
+            }
+
+            is EpisodeSeekEvent -> {
+                when (event.offset) {
+                    -1 -> prevEpisode()
+                    1 -> nextEpisode()
+                    else -> {}
+                }
+            }
+
+            is StatusEvent -> {
+                updateIsPlaying(wasPlaying = event.wasPlaying, isPlaying = event.isPlaying)
+                playerStatusChanged()
+            }
+
+            is PositionEvent -> {
+                playerPositionChanged(position = event.toMs, duration = event.durationMs)
+            }
+
+            is VideoEndedEvent -> {
+                context?.let { ctx ->
+                    // Resets subtitle delay on ended video
+                    player.setSubtitleOffset(0)
+
+                    // Only play next episode if autoplay is on (default)
+                    if (PreferenceManager.getDefaultSharedPreferences(ctx)
+                            ?.getBoolean(
+                                ctx.getString(R.string.autoplay_next_key),
+                                true
+                            ) == true
+                    ) {
+                        player.handleEvent(
+                            CSPlayerEvent.NextEpisode,
+                            source = PlayerEventSource.Player
+                        )
+                    }
+                }
+            }
+
+            is PauseEvent -> Unit
+            is PlayEvent -> Unit
+        }
+    }
+
+    @SuppressLint("SetTextI18n", "UnsafeOptInUsageError")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        resizeMode = getKey(RESIZE_MODE_KEY) ?: 0
+        resizeMode = DataStoreHelper.resizeMode
         resize(resizeMode, false)
 
         player.releaseCallbacks()
         player.initCallbacks(
-            playerUpdated = ::playerUpdated,
-            updateIsPlaying = ::updateIsPlaying,
-            playerError = ::playerError,
-            requestAutoFocus = ::requestAudioFocus,
-            nextEpisode = ::nextEpisode,
-            prevEpisode = ::prevEpisode,
-            playerPositionChanged = ::playerPositionChanged,
-            playerDimensionsLoaded = ::playerDimensionsLoaded,
+            eventHandler = ::mainCallback,
             requestedListeningPercentages = listOf(
                 SKIP_OP_VIDEO_PERCENTAGE,
                 PRELOAD_NEXT_EPISODE_PERCENTAGE,
                 NEXT_WATCH_EPISODE_PERCENTAGE,
                 UPDATE_SYNC_PROGRESS_PERCENTAGE,
             ),
-            subtitlesUpdates = ::subtitlesChanged,
-            embeddedSubtitlesFetched = ::embeddedSubtitlesFetched,
-            onTracksInfoChanged = ::onTracksInfoChanged,
-            onTimestampInvoked = ::onTimestamp,
-            onTimestampSkipped = ::onTimestampSkipped
         )
 
+        val player = player
         if (player is CS3IPlayer) {
-            subView = player_view?.findViewById(R.id.exo_subtitles)
-            subStyle = SubtitlesFragment.getCurrentSavedStyle()
-            player.initSubtitles(subView, subtitle_holder, subStyle)
+            // preview bar
+            val progressBar: PreviewTimeBar? = playerView?.findViewById(R.id.exo_progress)
+            val previewImageView: ImageView? = playerView?.findViewById(R.id.previewImageView)
+            val previewFrameLayout: FrameLayout? = playerView?.findViewById(R.id.previewFrameLayout)
+            if (progressBar != null && previewImageView != null && previewFrameLayout != null) {
+                var resume = false
+                progressBar.addOnScrubListener(object : PreviewBar.OnScrubListener {
+                    override fun onScrubStart(previewBar: PreviewBar?) {
+                        val hasPreview = player.hasPreview()
+                        progressBar.isPreviewEnabled = hasPreview
+                        resume = player.getIsPlaying()
+                        if (resume) player.handleEvent(
+                            CSPlayerEvent.Pause,
+                            PlayerEventSource.Player
+                        )
+
+                        // No clashing UI
+                        if (hasPreview) {
+                            subView?.isVisible = false
+                        }
+                    }
+
+                    override fun onScrubMove(
+                        previewBar: PreviewBar?,
+                        progress: Int,
+                        fromUser: Boolean
+                    ) {
+                    }
+
+                    override fun onScrubStop(previewBar: PreviewBar?) {
+                        if (resume) player.handleEvent(CSPlayerEvent.Play, PlayerEventSource.Player)
+                        // Delay to prevent the small flicker of subtitle before seeking
+                        subView?.postDelayed({
+                            // If we are not scrubbing then show subtitles again
+                            if (previewBar == null || !previewBar.isPreviewEnabled || !previewBar.isShowingPreview) {
+                                subView?.isVisible = true
+                            }
+                        }, 200)
+                    }
+                })
+                progressBar.attachPreviewView(previewFrameLayout)
+                progressBar.setPreviewLoader { currentPosition, max ->
+                    val bitmap = player.getPreview(currentPosition.toFloat().div(max.toFloat()))
+                    previewImageView.isGone = bitmap == null
+                    previewImageView.setImageBitmap(bitmap)
+                }
+            }
+
+            subView = playerView?.findViewById(androidx.media3.ui.R.id.exo_subtitles)
+            player.initSubtitles(subView, subtitleHolder, CustomDecoder.style)
+            (player.imageGenerator as? PreviewGenerator)?.params = ImageParams.new16by9(screenWidth)
+
+            /*previewImageView?.doOnLayout {
+                (player.imageGenerator as? PreviewGenerator)?.params = ImageParams(
+                    it.measuredWidth,
+                    it.measuredHeight
+                )
+            }*/
+            /** this might seam a bit fucky and that is because it is, the seek event is captured twice, once by the player
+             * and once by the UI even if it should only be registered once by the UI */
+            playerView?.findViewById<DefaultTimeBar>(R.id.exo_progress)
+                ?.addListener(object : TimeBar.OnScrubListener {
+                    override fun onScrubStart(timeBar: TimeBar, position: Long) = Unit
+                    override fun onScrubMove(timeBar: TimeBar, position: Long) = Unit
+                    override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) {
+                        if (canceled) return
+                        val playerDuration = player.getDuration() ?: return
+                        val playerPosition = player.getPosition() ?: return
+                        mainCallback(
+                            PositionEvent(
+                                source = PlayerEventSource.UI,
+                                durationMs = playerDuration,
+                                fromMs = playerPosition,
+                                toMs = position
+                            )
+                        )
+                    }
+                })
 
             SubtitlesFragment.applyStyleEvent += ::onSubStyleChanged
 
@@ -436,6 +681,9 @@ abstract class AbstractPlayerFragment(
         playerEventListener = null
         keyEventListener = null
         canEnterPipMode = false
+        mMediaSession?.release()
+        mMediaSession = null
+        playerView?.player = null
         SubtitlesFragment.applyStyleEvent -= ::onSubStyleChanged
 
         keepScreenOn(false)
@@ -443,25 +691,26 @@ abstract class AbstractPlayerFragment(
     }
 
     fun nextResize() {
-        resizeMode = (resizeMode + 1) % PlayerResize.values().size
+        resizeMode = (resizeMode + 1) % PlayerResize.entries.size
         resize(resizeMode, true)
     }
 
     fun resize(resize: Int, showToast: Boolean) {
-        resize(PlayerResize.values()[resize], showToast)
+        resize(PlayerResize.entries[resize], showToast)
     }
 
+    @SuppressLint("UnsafeOptInUsageError")
     fun resize(resize: PlayerResize, showToast: Boolean) {
-        setKey(RESIZE_MODE_KEY, resize.ordinal)
+        DataStoreHelper.resizeMode = resize.ordinal
         val type = when (resize) {
             PlayerResize.Fill -> AspectRatioFrameLayout.RESIZE_MODE_FILL
             PlayerResize.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT
             PlayerResize.Zoom -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
         }
-        player_view?.resizeMode = type
+        playerView?.resizeMode = type
 
         if (showToast)
-            showToast(activity, resize.nameRes, Toast.LENGTH_SHORT)
+            showToast(resize.nameRes, Toast.LENGTH_SHORT)
     }
 
     override fun onStop() {
@@ -482,6 +731,13 @@ abstract class AbstractPlayerFragment(
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        return inflater.inflate(layout, container, false)
+        val root = inflater.inflate(layout, container, false)
+        playerPausePlayHolderHolder = root.findViewById(R.id.player_pause_play_holder_holder)
+        playerPausePlay = root.findViewById(R.id.player_pause_play)
+        playerBuffering = root.findViewById(R.id.player_buffering)
+        playerView = root.findViewById(R.id.player_view)
+        piphide = root.findViewById(R.id.piphide)
+        subtitleHolder = root.findViewById(R.id.subtitle_holder)
+        return root
     }
 }

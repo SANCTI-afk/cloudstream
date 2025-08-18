@@ -143,6 +143,7 @@
         <item>@string/show_hd</item>
         <item>@string/show_dub</item>
         <item>@string/show_sub</item>
+        <item>@string/show_rating</item>
         <item>@string/show_title</item>
     </array>
 
@@ -150,33 +151,8 @@
         <item>@string/show_hd_key</item>
         <item>@string/show_dub_key</item>
         <item>@string/show_sub_key</item>
+        <item>@string/show_rating_key</item>
         <item>@string/show_title_key</item>
-    </array>
-
-    <array name="episode_long_click_options">
-        <item>@string/episode_action_chromecast_episode</item>
-        <item>@string/episode_action_chromecast_mirror</item>
-        <item>@string/episode_action_play_in_app</item>
-        <item>@string/episode_action_play_in_format</item>
-        <item>@string/episode_action_play_in_browser</item>
-        <item>@string/episode_action_copy_link</item>
-        <item>@string/episode_action_auto_download</item>
-        <item>@string/episode_action_download_mirror</item>
-        <item>@string/episode_action_download_subtitle</item>
-        <item>@string/episode_action_reload_links</item>
-    </array>
-
-    <array name="episode_long_click_options_values">
-        <item>4</item>
-        <item>5</item>
-        <item>1</item>
-        <item>2</item>
-        <item>3</item>
-        <item>9</item>
-        <item>6</item>
-        <item>7</item>
-        <item>13</item>
-        <item>8</item>
     </array>
 
     <array name="app_layout">
@@ -195,12 +171,15 @@
 
     <string-array name="themes_overlay_names">
         <item>Mặc định</item>
+        <item>bồ công anh màu vàng</item>
         <item>Hồng nhạt</item>
+        <item>Quả cam</item>
         <item>Xanh lam đậm</item>
         <item>Nâu sẫm</item>
         <item>Xanh lục</item>
         <item>Xám</item>
         <item>Trắng</item>
+        <item>Màu xanh mát</item>
         <item>Nâu</item>
         <item>Xanh lục nhạt</item>
         <item>Đỏ</item>
@@ -210,17 +189,21 @@
         <item>Vàng</item>
         <item>Hồng</item>
         <item>Hồng đậm</item>
+        <item>Hoa oải hương</item>
         <item>Material You</item>
         <item>Material You (Secondary)</item>
     </string-array>
     <string-array name="themes_overlay_names_values">
         <item>Normal</item>
+        <item>DandelionYellow</item>
         <item>CarnationPink</item>
+        <item>Orange</item>
         <item>DarkGreen</item>
         <item>Maroon</item>
         <item>NavyBlue</item>
         <item>Grey</item>
         <item>White</item>
+        <item>CoolBlue</item>
         <item>Brown</item>
         <item>Blue</item>
         <item>Red</item>
@@ -230,6 +213,7 @@
         <item>Banana</item>
         <item>Party</item>
         <item>Pink</item>
+        <item>Lavender</item>
         <item>Monet</item>
         <item>Monet2</item>
     </string-array>
@@ -240,6 +224,7 @@
         <item>Xám</item>
         <item>Amoled</item>
         <item>Sáng</item>
+        <item>Hệ thống</item>
         <item>Material You</item>
     </string-array>
     <string-array name="themes_names_values">
@@ -247,6 +232,7 @@
         <item>Black</item>
         <item>Amoled</item>
         <item>Light</item>
+        <item>System</item>
         <item>Monet</item>
     </string-array>
 

@@ -1,5 +1,6 @@
 package com.lagradost.cloudstream3.ui.search
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.view.View
 import android.widget.ImageView
@@ -7,15 +8,24 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.cardview.widget.CardView
 import androidx.core.view.isVisible
+import androidx.palette.graphics.Palette
 import androidx.preference.PreferenceManager
-import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.isTrueTvSettings
-import com.lagradost.cloudstream3.utils.AppUtils.getNameFull
+import com.lagradost.cloudstream3.AnimeSearchResponse
+import com.lagradost.cloudstream3.DubStatus
+import com.lagradost.cloudstream3.LiveSearchResponse
+import com.lagradost.cloudstream3.R
+import com.lagradost.cloudstream3.SearchQuality
+import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.isMovieType
+import com.lagradost.cloudstream3.syncproviders.SyncAPI
+import com.lagradost.cloudstream3.ui.settings.Globals.TV
+import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
+import com.lagradost.cloudstream3.utils.AppContextUtils.getNameFull
 import com.lagradost.cloudstream3.utils.DataStoreHelper
 import com.lagradost.cloudstream3.utils.DataStoreHelper.fixVisual
+import com.lagradost.cloudstream3.utils.ImageLoader.loadImage
 import com.lagradost.cloudstream3.utils.SubtitleHelper
-import com.lagradost.cloudstream3.utils.UIHelper.setImage
-import kotlinx.android.synthetic.main.home_result_grid.view.*
+import com.lagradost.cloudstream3.utils.getImageFromDrawable
 
 object SearchResultBuilder {
     private val showCache: MutableMap<String, Boolean> = mutableMapOf()
@@ -29,32 +39,31 @@ object SearchResultBuilder {
         }
     }
 
-    /**
-     * @param nextFocusBehavior True if first, False if last, Null if between.
-     * Used to prevent escaping the adapter horizontally (focus wise).
-     */
+    @SuppressLint("StringFormatInvalid")
     fun bind(
         clickCallback: (SearchClickCallback) -> Unit,
         card: SearchResponse,
         position: Int,
         itemView: View,
-        nextFocusBehavior: Boolean? = null,
         nextFocusUp: Int? = null,
         nextFocusDown: Int? = null,
+        colorCallback: ((Palette) -> Unit)? = null
     ) {
-        val cardView: ImageView = itemView.imageView
-        val cardText: TextView? = itemView.imageText
+        val cardView: ImageView = itemView.findViewById(R.id.imageView)
+        val cardText: TextView? = itemView.findViewById(R.id.imageText)
 
-        val textIsDub: TextView? = itemView.text_is_dub
-        val textIsSub: TextView? = itemView.text_is_sub
-        val textFlag: TextView? = itemView.text_flag
-        val textQuality: TextView? = itemView.text_quality
-        val shadow: View? = itemView.title_shadow
+        val textIsDub: TextView? = itemView.findViewById(R.id.text_is_dub)
+        val textIsSub: TextView? = itemView.findViewById(R.id.text_is_sub)
+        val textFlag: TextView? = itemView.findViewById(R.id.text_flag)
+        val rating: TextView? = itemView.findViewById(R.id.text_rating)
 
-        val bg: CardView = itemView.background_card
+        val textQuality: TextView? = itemView.findViewById(R.id.text_quality)
+        val shadow: View? = itemView.findViewById(R.id.title_shadow)
 
-        val bar: ProgressBar? = itemView.watchProgress
-        val playImg: ImageView? = itemView.search_item_download_play
+        val bg: CardView = itemView.findViewById(R.id.background_card)
+
+        val bar: ProgressBar? = itemView.findViewById(R.id.watchProgress)
+        val playImg: ImageView? = itemView.findViewById(R.id.search_item_download_play)
 
         // Do logic
 
@@ -63,11 +72,29 @@ object SearchResultBuilder {
         textIsDub?.isVisible = false
         textIsSub?.isVisible = false
         textFlag?.isVisible = false
+        rating?.isVisible = false
 
         val showSub = showCache[textIsDub?.context?.getString(R.string.show_sub_key)] ?: false
         val showDub = showCache[textIsDub?.context?.getString(R.string.show_dub_key)] ?: false
         val showTitle = showCache[cardText?.context?.getString(R.string.show_title_key)] ?: false
         val showHd = showCache[textQuality?.context?.getString(R.string.show_hd_key)] ?: false
+        val showRatingView =
+            showCache[textQuality?.context?.getString(R.string.show_rating_key)] ?: false
+        if (card is SyncAPI.LibraryItem) {
+            val ratingText = card.personalRating?.toStringNull(0.1, 10, 1)
+            val showRating = !ratingText.isNullOrBlank()
+            rating?.isVisible = showRating
+            if (showRating) {
+                rating?.text = ratingText
+            }
+        } else if (showRatingView) {
+            val ratingText = card.score?.toStringNull(0.1, 10, 1)
+            val showRating = !ratingText.isNullOrBlank()
+            rating?.isVisible = showRating
+            if (showRating) {
+                rating?.text = ratingText
+            }
+        }
 
         shadow?.isVisible = showTitle
 
@@ -99,9 +126,17 @@ object SearchResultBuilder {
         cardText?.text = card.name
         cardText?.isVisible = showTitle
         cardView.isVisible = true
-
-        if (!cardView.setImage(card.posterUrl, card.posterHeaders)) {
-            cardView.setImageResource(R.drawable.default_cover)
+        cardView.loadImage(card.posterUrl, card.posterHeaders) {
+            error { getImageFromDrawable(itemView.context, R.drawable.default_cover) }
+            /*
+            createPaletteAsync is currently disabled as we use hardware acceleration on images
+            val posterUrl = card.posterUrl
+            if (posterUrl != null && colorCallback != null) {
+                this.listener(onSuccess = { _,success ->
+                    val bitmap = success.image.toBitmap()
+                    createPaletteAsync(posterUrl, bitmap, colorCallback)
+                })
+            }*/
         }
 
         fun click(view: View?) {
@@ -139,15 +174,42 @@ object SearchResultBuilder {
             }
         }
 
-        bg.setOnClickListener {
-            click(it)
+        bg.isFocusable = false
+        bg.isFocusableInTouchMode = false
+        if (!isLayout(TV)) {
+            bg.setOnClickListener {
+                click(it)
+            }
+            bg.setOnLongClickListener {
+                longClick(it)
+                return@setOnLongClickListener true
+            }
         }
+        //
+        //
+        //
 
         itemView.setOnClickListener {
             click(it)
         }
-
         if (nextFocusUp != null) {
+            itemView.nextFocusUpId = nextFocusUp
+        }
+
+        if (nextFocusDown != null) {
+            itemView.nextFocusDownId = nextFocusDown
+        }
+
+        /*when (nextFocusBehavior) {
+            true -> itemView.nextFocusLeftId = bg.id
+            false -> itemView.nextFocusRightId = bg.id
+            null -> {
+                bg.nextFocusRightId = -1
+                bg.nextFocusLeftId = -1
+            }
+        }*/
+
+        /*if (nextFocusUp != null) {
             bg.nextFocusUpId = nextFocusUp
         }
 
@@ -155,36 +217,26 @@ object SearchResultBuilder {
             bg.nextFocusDownId = nextFocusDown
         }
 
-        when (nextFocusBehavior) {
-            true -> bg.nextFocusLeftId = bg.id
-            false -> bg.nextFocusRightId = bg.id
-            null -> {
-                bg.nextFocusRightId = -1
-                bg.nextFocusLeftId = -1
-            }
-        }
+        */
 
-        if (isTrueTvSettings()) {
-            bg.isFocusable = true
-            bg.isFocusableInTouchMode = true
-            bg.touchscreenBlocksFocus = false
+        if (isLayout(TV)) {
+            // bg.isFocusable = true
+            // bg.isFocusableInTouchMode = true
+            // bg.touchscreenBlocksFocus = false
             itemView.isFocusableInTouchMode = true
             itemView.isFocusable = true
         }
 
-        bg.setOnLongClickListener {
-            longClick(it)
-            return@setOnLongClickListener true
-        }
+        /**/
 
         itemView.setOnLongClickListener {
             longClick(it)
             return@setOnLongClickListener true
         }
 
-        bg.setOnFocusChangeListener { view, b ->
+        /*bg.setOnFocusChangeListener { view, b ->
             focus(view, b)
-        }
+        }*/
 
         itemView.setOnFocusChangeListener { view, b ->
             focus(view, b)
@@ -199,6 +251,7 @@ object SearchResultBuilder {
                     }
                 }
             }
+
             is DataStoreHelper.ResumeWatchingResult -> {
                 val pos = card.watchPos?.fixVisual()
                 if (pos != null) {
@@ -214,6 +267,7 @@ object SearchResultBuilder {
                         cardText?.context?.getNameFull(card.name, card.episode, card.season)
                 }
             }
+
             is AnimeSearchResponse -> {
                 val dubStatus = card.dubStatus
                 if (!dubStatus.isNullOrEmpty()) {

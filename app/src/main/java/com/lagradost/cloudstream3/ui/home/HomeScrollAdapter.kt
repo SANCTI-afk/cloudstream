@@ -1,89 +1,64 @@
 package com.lagradost.cloudstream3.ui.home
 
+import android.content.res.Configuration
 import android.view.LayoutInflater
-import android.view.View
 import android.view.ViewGroup
 import androidx.core.view.isGone
-import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.RecyclerView
+import androidx.fragment.app.Fragment
 import com.lagradost.cloudstream3.LoadResponse
-import com.lagradost.cloudstream3.R
-import com.lagradost.cloudstream3.utils.UIHelper.setImage
-import kotlinx.android.synthetic.main.home_scroll_view.view.*
+import com.lagradost.cloudstream3.databinding.HomeScrollViewBinding
+import com.lagradost.cloudstream3.databinding.HomeScrollViewTvBinding
+import com.lagradost.cloudstream3.ui.NoStateAdapter
+import com.lagradost.cloudstream3.ui.ViewHolderState
+import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
+import com.lagradost.cloudstream3.ui.settings.Globals.TV
+import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
+import com.lagradost.cloudstream3.utils.ImageLoader.loadImage
 
-
-class HomeScrollAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-    private var items: MutableList<LoadResponse> = mutableListOf()
+class HomeScrollAdapter(
+    fragment: Fragment
+) : NoStateAdapter<LoadResponse>(fragment) {
     var hasMoreItems: Boolean = false
 
-    fun getItem(position: Int) : LoadResponse? {
-        return items.getOrNull(position)
+    override fun onCreateContent(parent: ViewGroup): ViewHolderState<Any> {
+        val inflater = LayoutInflater.from(parent.context)
+        val binding = if (isLayout(TV or EMULATOR)) {
+            HomeScrollViewTvBinding.inflate(inflater, parent, false)
+        } else {
+            HomeScrollViewBinding.inflate(inflater, parent, false)
+        }
+
+        return ViewHolderState(binding)
     }
 
-    fun setItems(newItems: List<LoadResponse>, hasNext: Boolean): Boolean {
-        val isSame = newItems.firstOrNull()?.url == items.firstOrNull()?.url
-        hasMoreItems = hasNext
+    override fun onBindContent(
+        holder: ViewHolderState<Any>,
+        item: LoadResponse,
+        position: Int,
+    ) {
+        val binding = holder.view
+        val itemView = holder.itemView
+        val isHorizontal =
+            binding is HomeScrollViewTvBinding || itemView.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-        val diffResult = DiffUtil.calculateDiff(
-            HomeScrollDiffCallback(this.items, newItems)
-        )
+        val posterUrl =
+            if (isHorizontal) item.backgroundPosterUrl ?: item.posterUrl else item.posterUrl
+                ?: item.backgroundPosterUrl
 
-        items.clear()
-        items.addAll(newItems)
+        when (binding) {
+            is HomeScrollViewBinding -> {
+                binding.homeScrollPreview.loadImage(posterUrl)
+                binding.homeScrollPreviewTags.apply {
+                    text = item.tags?.joinToString(" • ") ?: ""
+                    isGone = item.tags.isNullOrEmpty()
+                    maxLines = 2
+                }
+                binding.homeScrollPreviewTitle.text = item.name
+            }
 
-
-        diffResult.dispatchUpdatesTo(this)
-
-        return isSame
-    }
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-        return CardViewHolder(
-            LayoutInflater.from(parent.context).inflate(R.layout.home_scroll_view, parent, false),
-        )
-    }
-
-    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        when (holder) {
-            is CardViewHolder -> {
-                holder.bind(items[position])
+            is HomeScrollViewTvBinding -> {
+                binding.homeScrollPreview.loadImage(posterUrl)
             }
         }
-    }
-
-    class CardViewHolder
-    constructor(
-        itemView: View,
-    ) :
-        RecyclerView.ViewHolder(itemView) {
-
-        fun bind(card: LoadResponse) {
-            card.apply {
-                itemView.home_scroll_preview_tags?.text = tags?.joinToString(" • ") ?: ""
-                itemView.home_scroll_preview_tags?.isGone = tags.isNullOrEmpty()
-                itemView.home_scroll_preview?.setImage(posterUrl, posterHeaders)
-                itemView.home_scroll_preview_title?.text = name
-            }
-        }
-    }
-
-    class HomeScrollDiffCallback(
-        private val oldList: List<LoadResponse>,
-        private val newList: List<LoadResponse>
-    ) :
-        DiffUtil.Callback() {
-        override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
-            oldList[oldItemPosition].url == newList[newItemPosition].url
-
-        override fun getOldListSize() = oldList.size
-
-        override fun getNewListSize() = newList.size
-
-        override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
-            oldList[oldItemPosition] == newList[newItemPosition]
-    }
-
-    override fun getItemCount(): Int {
-        return items.size
     }
 }

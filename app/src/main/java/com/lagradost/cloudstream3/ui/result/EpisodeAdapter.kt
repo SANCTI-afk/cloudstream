@@ -3,39 +3,41 @@ package com.lagradost.cloudstream3.ui.result
 import android.annotation.SuppressLint
 import android.content.Context
 import android.view.LayoutInflater
-import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
-import android.widget.TextView
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
-import androidx.core.widget.ContentLoadingProgressBar
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.button.MaterialButton
+import com.lagradost.cloudstream3.APIHolder.unixTimeMS
 import com.lagradost.cloudstream3.R
+import com.lagradost.cloudstream3.actions.VideoClickActionHolder
+import com.lagradost.cloudstream3.databinding.ResultEpisodeBinding
+import com.lagradost.cloudstream3.databinding.ResultEpisodeLargeBinding
+import com.lagradost.cloudstream3.syncproviders.AccountManager.Companion.secondsToReadable
 import com.lagradost.cloudstream3.ui.download.DOWNLOAD_ACTION_DOWNLOAD
-import com.lagradost.cloudstream3.ui.download.DownloadButtonViewHolder
+import com.lagradost.cloudstream3.ui.download.DOWNLOAD_ACTION_LONG_CLICK
 import com.lagradost.cloudstream3.ui.download.DownloadClickEvent
-import com.lagradost.cloudstream3.ui.download.EasyDownloadButton
-import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.isTrueTvSettings
-import com.lagradost.cloudstream3.utils.AppUtils.html
-import com.lagradost.cloudstream3.utils.UIHelper.setImage
+import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
+import com.lagradost.cloudstream3.ui.settings.Globals.PHONE
+import com.lagradost.cloudstream3.ui.settings.Globals.TV
+import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
+import com.lagradost.cloudstream3.utils.AppContextUtils.html
+import com.lagradost.cloudstream3.utils.ImageLoader.loadImage
+import com.lagradost.cloudstream3.utils.UIHelper.toPx
 import com.lagradost.cloudstream3.utils.VideoDownloadHelper
-import com.lagradost.cloudstream3.utils.VideoDownloadManager
-import kotlinx.android.synthetic.main.result_episode.view.*
-import kotlinx.android.synthetic.main.result_episode.view.episode_text
-import kotlinx.android.synthetic.main.result_episode_large.view.*
-import kotlinx.android.synthetic.main.result_episode_large.view.episode_filler
-import kotlinx.android.synthetic.main.result_episode_large.view.episode_progress
-import kotlinx.android.synthetic.main.result_episode_large.view.result_episode_download
-import kotlinx.android.synthetic.main.result_episode_large.view.result_episode_progress_downloaded
-import java.util.*
+import com.lagradost.cloudstream3.utils.setText
+import com.lagradost.cloudstream3.utils.txt
+import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
+/**
+ * Ids >= 1000 are reserved for VideoClickActions
+ * @see VideoClickActionHolder
+ */
 const val ACTION_PLAY_EPISODE_IN_PLAYER = 1
-const val ACTION_PLAY_EPISODE_IN_VLC_PLAYER = 2
-const val ACTION_PLAY_EPISODE_IN_BROWSER = 3
 
 const val ACTION_CHROME_CAST_EPISODE = 4
 const val ACTION_CHROME_CAST_MIRROR = 5
@@ -44,7 +46,6 @@ const val ACTION_DOWNLOAD_EPISODE = 6
 const val ACTION_DOWNLOAD_MIRROR = 7
 
 const val ACTION_RELOAD_EPISODE = 8
-const val ACTION_COPY_LINK = 9
 
 const val ACTION_SHOW_OPTIONS = 10
 
@@ -55,9 +56,9 @@ const val ACTION_SHOW_DESCRIPTION = 15
 const val ACTION_DOWNLOAD_EPISODE_SUBTITLE = 13
 const val ACTION_DOWNLOAD_EPISODE_SUBTITLE_MIRROR = 14
 
-const val ACTION_PLAY_EPISODE_IN_WEB_VIDEO = 16
-const val ACTION_PLAY_EPISODE_IN_MPV = 17
+const val ACTION_MARK_AS_WATCHED = 18
 
+const val TV_EP_SIZE = 400
 
 data class EpisodeClickEvent(val action: Int, val data: ResultEpisode)
 
@@ -67,68 +68,19 @@ class EpisodeAdapter(
     private val downloadClickCallback: (DownloadClickEvent) -> Unit,
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
     companion object {
-        /**
-         * @return ACTION_PLAY_EPISODE_IN_PLAYER, ACTION_PLAY_EPISODE_IN_BROWSER or ACTION_PLAY_EPISODE_IN_VLC_PLAYER depending on player settings.
-         * See array.xml/player_pref_values
-         **/
         fun getPlayerAction(context: Context): Int {
-
             val settingsManager = PreferenceManager.getDefaultSharedPreferences(context)
-            return when (settingsManager.getInt(context.getString(R.string.player_pref_key), 1)) {
-                1 -> ACTION_PLAY_EPISODE_IN_PLAYER
-                2 -> ACTION_PLAY_EPISODE_IN_VLC_PLAYER
-                3 -> ACTION_PLAY_EPISODE_IN_BROWSER
-                4 -> ACTION_PLAY_EPISODE_IN_WEB_VIDEO
-                5 -> ACTION_PLAY_EPISODE_IN_MPV
-                else -> ACTION_PLAY_EPISODE_IN_PLAYER
-            }
+            val playerPref = settingsManager.getString(context.getString(R.string.player_default_key), "")
+            
+            return VideoClickActionHolder.uniqueIdToId(playerPref) ?: ACTION_PLAY_EPISODE_IN_PLAYER
         }
     }
 
     var cardList: MutableList<ResultEpisode> = mutableListOf()
 
-    private val mBoundViewHolders: HashSet<DownloadButtonViewHolder> = HashSet()
-    private fun getAllBoundViewHolders(): Set<DownloadButtonViewHolder?>? {
-        return Collections.unmodifiableSet(mBoundViewHolders)
-    }
-
-    fun killAdapter() {
-        getAllBoundViewHolders()?.forEach { view ->
-            view?.downloadButton?.dispose()
-        }
-    }
-
     override fun onViewDetachedFromWindow(holder: RecyclerView.ViewHolder) {
         if (holder.itemView.hasFocus()) {
             holder.itemView.clearFocus()
-        }
-        //(holder.itemView as? FrameLayout?)?.descendantFocusability =
-        //    ViewGroup.FOCUS_BLOCK_DESCENDANTS
-
-        if (holder is DownloadButtonViewHolder) {
-            holder.downloadButton.dispose()
-        }
-    }
-
-    override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
-        if (holder is DownloadButtonViewHolder) {
-            holder.downloadButton.dispose()
-            mBoundViewHolders.remove(holder)
-            //(holder.itemView as? FrameLayout?)?.descendantFocusability =
-            //    ViewGroup.FOCUS_BLOCK_DESCENDANTS
-        }
-    }
-
-    override fun onViewAttachedToWindow(holder: RecyclerView.ViewHolder) {
-        if (holder is DownloadButtonViewHolder) {
-            //println("onViewAttachedToWindow = ${holder.absoluteAdapterPosition}")
-            //holder.itemView.post {
-            //    if (holder.itemView.isAttachedToWindow)
-            //        (holder.itemView as? FrameLayout?)?.descendantFocusability =
-            //            ViewGroup.FOCUS_AFTER_DESCENDANTS
-            //}
-
-            holder.reattachDownloadButton()
         }
     }
 
@@ -143,27 +95,62 @@ class EpisodeAdapter(
         diffResult.dispatchUpdatesTo(this)
     }
 
-    var layout = R.layout.result_episode_both
+    private fun getItem(position: Int): ResultEpisode {
+        return cardList[position]
+    }
+
+    override fun getItemViewType(position: Int): Int {
+        val item = getItem(position)
+        return if (item.poster.isNullOrBlank() && item.description.isNullOrBlank()) 0 else 1
+    }
+
+
+    // private val layout = R.layout.result_episode_both
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         /*val layout = if (cardList.filter { it.poster != null }.size >= cardList.size / 2)
             R.layout.result_episode_large
         else R.layout.result_episode*/
 
-        return EpisodeCardViewHolder(
-            LayoutInflater.from(parent.context)
-                .inflate(layout, parent, false),
-            hasDownloadSupport,
-            clickCallback,
-            downloadClickCallback
-        )
+        return when (viewType) {
+            0 -> {
+                EpisodeCardViewHolderSmall(
+                    ResultEpisodeBinding.inflate(
+                        LayoutInflater.from(parent.context),
+                        parent,
+                        false
+                    ),
+                    hasDownloadSupport,
+                    clickCallback,
+                    downloadClickCallback
+                )
+            }
+
+            1 -> {
+                EpisodeCardViewHolderLarge(
+                    ResultEpisodeLargeBinding.inflate(
+                        LayoutInflater.from(parent.context),
+                        parent,
+                        false
+                    ),
+                    hasDownloadSupport,
+                    clickCallback,
+                    downloadClickCallback
+                )
+            }
+
+            else -> throw NotImplementedError()
+        }
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (holder) {
-            is EpisodeCardViewHolder -> {
-                holder.bind(cardList[position])
-                mBoundViewHolders.add(holder)
+            is EpisodeCardViewHolderLarge -> {
+                holder.bind(getItem(position))
+            }
+
+            is EpisodeCardViewHolderSmall -> {
+                holder.bind(getItem(position))
             }
         }
     }
@@ -172,83 +159,148 @@ class EpisodeAdapter(
         return cardList.size
     }
 
-    class EpisodeCardViewHolder
-    constructor(
-        itemView: View,
+    class EpisodeCardViewHolderLarge(
+        val binding: ResultEpisodeLargeBinding,
         private val hasDownloadSupport: Boolean,
         private val clickCallback: (EpisodeClickEvent) -> Unit,
         private val downloadClickCallback: (DownloadClickEvent) -> Unit,
-    ) : RecyclerView.ViewHolder(itemView), DownloadButtonViewHolder {
-        override var downloadButton = EasyDownloadButton()
-
-        var episodeDownloadBar: ContentLoadingProgressBar? = null
-        var episodeDownloadImage: ImageView? = null
+    ) : RecyclerView.ViewHolder(binding.root) {
         var localCard: ResultEpisode? = null
 
         @SuppressLint("SetTextI18n")
         fun bind(card: ResultEpisode) {
             localCard = card
+            val setWidth =
+                if (isLayout(TV or EMULATOR)) TV_EP_SIZE.toPx else ViewGroup.LayoutParams.MATCH_PARENT
 
-            val isTrueTv = isTrueTvSettings()
+            binding.episodeLinHolder.layoutParams.width = setWidth
+            binding.episodeHolderLarge.layoutParams.width = setWidth
+            binding.episodeHolder.layoutParams.width = setWidth
 
-            val (parentView, otherView) = if (card.poster == null) {
-                itemView.episode_holder to itemView.episode_holder_large
-            } else {
-                itemView.episode_holder_large to itemView.episode_holder
-            }
-            parentView.isVisible = true
-            otherView.isVisible = false
 
-            val episodeText: TextView = parentView.episode_text
-            val episodeFiller: MaterialButton? = parentView.episode_filler
-            val episodeRating: TextView? = parentView.episode_rating
-            val episodeDescript: TextView? = parentView.episode_descript
-            val episodeProgress: ContentLoadingProgressBar? = parentView.episode_progress
-            val episodePoster: ImageView? = parentView.episode_poster
+            binding.apply {
+                downloadButton.isVisible = hasDownloadSupport
+                downloadButton.setDefaultClickListener(
+                    VideoDownloadHelper.DownloadEpisodeCached(
+                        name = card.name,
+                        poster = card.poster,
+                        episode = card.episode,
+                        season = card.season,
+                        id = card.id,
+                        parentId = card.parentId,
+                        score = card.score,
+                        description = card.description,
+                        cacheTime = System.currentTimeMillis(),
+                    ), null
+                ) {
+                    when (it.action) {
+                        DOWNLOAD_ACTION_DOWNLOAD -> {
+                            clickCallback.invoke(EpisodeClickEvent(ACTION_DOWNLOAD_EPISODE, card))
+                        }
 
-            episodeDownloadBar =
-                parentView.result_episode_progress_downloaded
-            episodeDownloadImage = parentView.result_episode_download
+                        DOWNLOAD_ACTION_LONG_CLICK -> {
+                            clickCallback.invoke(EpisodeClickEvent(ACTION_DOWNLOAD_MIRROR, card))
+                        }
 
-            val name =
-                if (card.name == null) "${episodeText.context.getString(R.string.episode)} ${card.episode}" else "${card.episode}. ${card.name}"
-            episodeFiller?.isVisible = card.isFiller == true
-            episodeText.text =
-                name//if(card.isFiller == true) episodeText.context.getString(R.string.filler).format(name) else name
-            episodeText.isSelected = true // is needed for text repeating
-
-            val displayPos = card.getDisplayPosition()
-            episodeProgress?.max = (card.duration / 1000).toInt()
-            episodeProgress?.progress = (displayPos / 1000).toInt()
-            episodeProgress?.isVisible = displayPos > 0L
-
-            episodePoster?.isVisible = episodePoster?.setImage(card.poster) == true
-
-            if (card.rating != null) {
-                episodeRating?.text = episodeRating?.context?.getString(R.string.rated_format)
-                    ?.format(card.rating.toFloat() / 10f)
-            } else {
-                episodeRating?.text = ""
-            }
-
-            episodeRating?.isGone = episodeRating?.text.isNullOrBlank()
-
-            episodeDescript?.apply {
-                text = card.description.html()
-                isGone = text.isNullOrBlank()
-                setOnClickListener {
-                    clickCallback.invoke(EpisodeClickEvent(ACTION_SHOW_DESCRIPTION, card))
-                }
-            }
-
-            if (!isTrueTv) {
-                episodePoster?.setOnClickListener {
-                    clickCallback.invoke(EpisodeClickEvent(ACTION_CLICK_DEFAULT, card))
+                        else -> {
+                            downloadClickCallback.invoke(it)
+                        }
+                    }
                 }
 
-                episodePoster?.setOnLongClickListener {
-                    clickCallback.invoke(EpisodeClickEvent(ACTION_SHOW_TOAST, card))
-                    return@setOnLongClickListener true
+                val name =
+                    if (card.name == null) "${episodeText.context.getString(R.string.episode)} ${card.episode}" else "${card.episode}. ${card.name}"
+                episodeFiller.isVisible = card.isFiller == true
+                episodeText.text =
+                    name//if(card.isFiller == true) episodeText.context.getString(R.string.filler).format(name) else name
+                episodeText.isSelected = true // is needed for text repeating
+
+                if (card.videoWatchState == VideoWatchState.Watched) {
+                    // This cannot be done in getDisplayPosition() as when you have not watched something
+                    // the duration and position is 0
+                    episodeProgress.max = 1
+                    episodeProgress.progress = 1
+                    episodeProgress.isVisible = true
+                } else {
+                    val displayPos = card.getDisplayPosition()
+                    episodeProgress.max = (card.duration / 1000).toInt()
+                    episodeProgress.progress = (displayPos / 1000).toInt()
+                    episodeProgress.isVisible = displayPos > 0L
+                }
+
+                episodePoster.loadImage(card.poster)
+
+                if (card.score != null) {
+                    episodeRating.text = episodeRating.context?.getString(R.string.rated_format)
+                        ?.format(card.score.toFloat(10)) // TODO Change rated_format to use card.score.toString()
+                } else {
+                    episodeRating.text = ""
+                }
+
+                episodeRating.isGone = episodeRating.text.isNullOrBlank()
+
+                episodeDescript.apply {
+                    text = card.description.html()
+                    isGone = text.isNullOrBlank()
+
+                    var isExpanded = false
+                    setOnClickListener {
+                        if (isLayout(TV)) {
+                            clickCallback.invoke(EpisodeClickEvent(ACTION_SHOW_DESCRIPTION, card))
+                        } else {
+                            isExpanded = !isExpanded
+                            maxLines = if (isExpanded) {
+                                Integer.MAX_VALUE
+                            } else 4
+                        }
+                    }
+                }
+
+                if (card.airDate != null) {
+                    val isUpcoming = unixTimeMS < card.airDate
+
+                    if (isUpcoming) {
+                        episodePlayIcon.isVisible = false
+                        episodeUpcomingIcon.isVisible = !episodePoster.isVisible
+                        episodeDate.setText(
+                            com.lagradost.cloudstream3.utils.txt(
+                                R.string.episode_upcoming_format,
+                                secondsToReadable(
+                                    card.airDate.minus(unixTimeMS).div(1000).toInt(),
+                                    ""
+                                )
+                            )
+                        )
+                    } else {
+                        episodeUpcomingIcon.isVisible = false
+
+                        val formattedAirDate = SimpleDateFormat.getDateInstance(
+                            DateFormat.LONG,
+                            Locale.getDefault()
+                        ).apply {
+                        }.format(Date(card.airDate))
+
+                        episodeDate.setText(txt(formattedAirDate))
+                    }
+                } else {
+                    episodeDate.isVisible = false
+                }
+
+                episodeRuntime.setText(
+                    txt(
+                        card.runTime?.times(60L)?.toInt()?.let { secondsToReadable(it, "") }
+                    )
+                )
+
+                if (isLayout(EMULATOR or PHONE)) {
+                    episodePoster.setOnClickListener {
+                        clickCallback.invoke(EpisodeClickEvent(ACTION_CLICK_DEFAULT, card))
+                    }
+
+                    episodePoster.setOnLongClickListener {
+                        clickCallback.invoke(EpisodeClickEvent(ACTION_SHOW_TOAST, card))
+                        return@setOnLongClickListener true
+                    }
                 }
             }
 
@@ -256,7 +308,7 @@ class EpisodeAdapter(
                 clickCallback.invoke(EpisodeClickEvent(ACTION_CLICK_DEFAULT, card))
             }
 
-            if (isTrueTv) {
+            if (isLayout(TV)) {
                 itemView.isFocusable = true
                 itemView.isFocusableInTouchMode = true
                 //itemView.touchscreenBlocksFocus = false
@@ -267,47 +319,91 @@ class EpisodeAdapter(
                 return@setOnLongClickListener true
             }
 
-            episodeDownloadImage?.isVisible = hasDownloadSupport
-            episodeDownloadBar?.isVisible = hasDownloadSupport
-            reattachDownloadButton()
+            //binding.resultEpisodeDownload.isVisible = hasDownloadSupport
+            //binding.resultEpisodeProgressDownloaded.isVisible = hasDownloadSupport
         }
+    }
 
-        override fun reattachDownloadButton() {
-            downloadButton.dispose()
-            val card = localCard
-            if (hasDownloadSupport && card != null) {
-                if (episodeDownloadBar == null ||
-                    episodeDownloadImage == null
-                ) return
-                val downloadInfo = VideoDownloadManager.getDownloadFileInfoAndUpdateSettings(
-                    itemView.context,
-                    card.id
-                )
+    class EpisodeCardViewHolderSmall(
+        val binding: ResultEpisodeBinding,
+        private val hasDownloadSupport: Boolean,
+        private val clickCallback: (EpisodeClickEvent) -> Unit,
+        private val downloadClickCallback: (DownloadClickEvent) -> Unit,
+    ) : RecyclerView.ViewHolder(binding.root) {
+        @SuppressLint("SetTextI18n")
+        fun bind(card: ResultEpisode) {
+            binding.episodeHolder.layoutParams.apply {
+                width =
+                    if (isLayout(TV or EMULATOR)) TV_EP_SIZE.toPx else ViewGroup.LayoutParams.MATCH_PARENT
+            }
 
-                downloadButton.setUpButton(
-                    downloadInfo?.fileLength,
-                    downloadInfo?.totalBytes,
-                    episodeDownloadBar ?: return,
-                    episodeDownloadImage ?: return,
-                    null,
+            binding.apply {
+                downloadButton.isVisible = hasDownloadSupport
+                downloadButton.setDefaultClickListener(
                     VideoDownloadHelper.DownloadEpisodeCached(
-                        card.name,
-                        card.poster,
-                        card.episode,
-                        card.season,
-                        card.id,
-                        card.parentId,
-                        card.rating,
-                        card.description,
-                        System.currentTimeMillis(),
-                    )
+                        name = card.name,
+                        poster = card.poster,
+                        episode = card.episode,
+                        season = card.season,
+                        id = card.id,
+                        parentId = card.parentId,
+                        score = card.score,
+                        description = card.description,
+                        cacheTime = System.currentTimeMillis(),
+                    ), null
                 ) {
-                    if (it.action == DOWNLOAD_ACTION_DOWNLOAD) {
-                        clickCallback.invoke(EpisodeClickEvent(ACTION_DOWNLOAD_EPISODE, card))
-                    } else {
-                        downloadClickCallback.invoke(it)
+                    when (it.action) {
+                        DOWNLOAD_ACTION_DOWNLOAD -> {
+                            clickCallback.invoke(EpisodeClickEvent(ACTION_DOWNLOAD_EPISODE, card))
+                        }
+
+                        DOWNLOAD_ACTION_LONG_CLICK -> {
+                            clickCallback.invoke(EpisodeClickEvent(ACTION_DOWNLOAD_MIRROR, card))
+                        }
+
+                        else -> {
+                            downloadClickCallback.invoke(it)
+                        }
                     }
                 }
+
+                val name =
+                    if (card.name == null) "${episodeText.context.getString(R.string.episode)} ${card.episode}" else "${card.episode}. ${card.name}"
+                episodeFiller.isVisible = card.isFiller == true
+                episodeText.text =
+                    name//if(card.isFiller == true) episodeText.context.getString(R.string.filler).format(name) else name
+                episodeText.isSelected = true // is needed for text repeating
+
+                if (card.videoWatchState == VideoWatchState.Watched) {
+                    // This cannot be done in getDisplayPosition() as when you have not watched something
+                    // the duration and position is 0
+                    episodeProgress.max = 1
+                    episodeProgress.progress = 1
+                    episodeProgress.isVisible = true
+                } else {
+                    val displayPos = card.getDisplayPosition()
+                    episodeProgress.max = (card.duration / 1000).toInt()
+                    episodeProgress.progress = (displayPos / 1000).toInt()
+                    episodeProgress.isVisible = displayPos > 0L
+                }
+
+                itemView.setOnClickListener {
+                    clickCallback.invoke(EpisodeClickEvent(ACTION_CLICK_DEFAULT, card))
+                }
+
+                if (isLayout(TV)) {
+                    itemView.isFocusable = true
+                    itemView.isFocusableInTouchMode = true
+                    //itemView.touchscreenBlocksFocus = false
+                }
+
+                itemView.setOnLongClickListener {
+                    clickCallback.invoke(EpisodeClickEvent(ACTION_SHOW_OPTIONS, card))
+                    return@setOnLongClickListener true
+                }
+
+                //binding.resultEpisodeDownload.isVisible = hasDownloadSupport
+                //binding.resultEpisodeProgressDownloaded.isVisible = hasDownloadSupport
             }
         }
     }

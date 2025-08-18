@@ -22,6 +22,8 @@
         <item>AdGuard</item>
         <item>DNS.WATCH</item>
         <item>Quad9</item>
+        <item>DNS.SB</item>
+        <item>Canadian Shield</item>
     </array>
     <array name="dns_pref_values">
         <item>0</item>
@@ -31,22 +33,25 @@
         <item>4</item>
         <item>5</item>
         <item>6</item>
+        <item>7</item>
+        <item>8</item>
     </array>
 
-    <array name="player_pref_names">
-        <item>@string/player_settings_play_in_app</item>
-        <item>@string/player_settings_play_in_vlc</item>
-        <item>@string/player_settings_play_in_mpv</item>
-        <item>@string/player_settings_play_in_web</item>
-        <item>@string/player_settings_play_in_browser</item>
+    <array name="apk_installer_pref">
+        <item>@string/apk_installer_package_installer</item>
+        <item>@string/apk_installer_legacy</item>
     </array>
-
-    <array name="player_pref_values">
+    <array name="apk_installer_values">
+        <item>0</item>
         <item>1</item>
-        <item>2</item>
-        <item>5</item>
-        <item>4</item>
-        <item>3</item>
+    </array>
+
+    <!-- MainAPI enum: AutoDownloadMode -->
+    <array name="auto_download_plugin">
+        <item>@string/disable</item>
+        <item>@string/subtitles_filter_lang</item>
+        <item>@string/all</item>
+        <item>@string/nsfw</item>
     </array>
 
     <array name="limit_title_rez_pref_names">
@@ -108,6 +113,26 @@
         <item>20min</item>
         <item>30min</item>
     </array>
+
+    <string-array name="periodic_work_names">
+        <item>@string/none</item>
+        <item>3h</item>
+        <item>6h</item>
+        <item>12h</item>
+        <item>24h</item>
+        <item>3d</item>
+        <item>7d</item>
+    </string-array>
+    <!-- Values in hours -->
+    <integer-array name="periodic_work_values">
+        <item>0</item>
+        <item>3</item>
+        <item>6</item>
+        <item>12</item>
+        <item>24</item>
+        <item>72</item>
+        <item>168</item>
+    </integer-array>
 
     <array name="video_buffer_length_values">
         <item>0</item>
@@ -177,6 +202,7 @@
         <item>@string/show_hd</item>
         <item>@string/show_dub</item>
         <item>@string/show_sub</item>
+        <item>@string/show_rating</item>
         <item>@string/show_title</item>
     </array>
 
@@ -184,33 +210,8 @@
         <item>@string/show_hd_key</item>
         <item>@string/show_dub_key</item>
         <item>@string/show_sub_key</item>
+        <item>@string/show_rating_key</item>
         <item>@string/show_title_key</item>
-    </array>
-
-    <array name="episode_long_click_options">
-        <item>@string/episode_action_chromecast_episode</item>
-        <item>@string/episode_action_chromecast_mirror</item>
-        <item>@string/episode_action_play_in_app</item>
-        <item>@string/episode_action_play_in_format</item>
-        <item>@string/episode_action_play_in_browser</item>
-        <item>@string/episode_action_copy_link</item>
-        <item>@string/episode_action_auto_download</item>
-        <item>@string/episode_action_download_mirror</item>
-        <item>@string/episode_action_download_subtitle</item>
-        <item>@string/episode_action_reload_links</item>
-    </array>
-
-    <array name="episode_long_click_options_values">
-        <item>4</item>
-        <item>5</item>
-        <item>1</item>
-        <item>2</item>
-        <item>3</item>
-        <item>9</item>
-        <item>6</item>
-        <item>7</item>
-        <item>13</item>
-        <item>8</item>
     </array>
 
     <array name="app_layout">
@@ -227,14 +228,40 @@
         <item>2</item>
     </array>
 
+    <array name="software_decoding_switch">
+        <item>@string/automatic</item>
+        <item>@string/yes</item>
+        <item>@string/no</item>
+    </array>
+
+    <array name="software_decoding_switch_values">
+        <item>-1</item>
+        <item>0</item>
+        <item>1</item>
+    </array>
+
+    <array name="confirm_exit">
+        <item>@string/automatic</item>
+        <item>@string/show</item>
+        <item>@string/dont_show</item>
+    </array>
+    <array name="confirm_exit_values">
+        <item>-1</item>
+        <item>0</item>
+        <item>1</item>
+    </array>
+
     <string-array name="themes_overlay_names">
         <item>Normal</item>
+        <item>Dandelion Yellow</item>
         <item>Carnation Pink</item>
+        <item>Orange</item>
         <item>Dark Green</item>
         <item>Maroon</item>
         <item>Navy Blue</item>
         <item>Grey</item>
         <item>White</item>
+        <item>Cool Blue</item>
         <item>Brown</item>
         <item>Cool</item>
         <item>Fire</item>
@@ -244,17 +271,21 @@
         <item>Banana</item>
         <item>Party</item>
         <item>Pink Pain</item>
+        <item>Lavender</item>
         <item>Material You</item>
         <item>Material You (Secondary)</item>
     </string-array>
     <string-array name="themes_overlay_names_values">
         <item>Normal</item>
+        <item>DandelionYellow</item>
         <item>CarnationPink</item>
+        <item>Orange</item>
         <item>DarkGreen</item>
         <item>Maroon</item>
         <item>NavyBlue</item>
         <item>Grey</item>
         <item>White</item>
+        <item>CoolBlue</item>
         <item>Brown</item>
         <item>Blue</item>
         <item>Red</item>
@@ -264,6 +295,7 @@
         <item>Banana</item>
         <item>Party</item>
         <item>Pink</item>
+        <item>Lavender</item>
         <item>Monet</item>
         <item>Monet2</item>
     </string-array>
@@ -273,6 +305,7 @@
         <item>Gray</item>
         <item>Amoled</item>
         <item>Flashbang</item>
+        <item>System</item>
         <item>Material You</item>
     </string-array>
     <string-array name="themes_names_values">
@@ -280,6 +313,7 @@
         <item>Black</item>
         <item>Amoled</item>
         <item>Light</item>
+        <item>System</item>
         <item>Monet</item>
     </string-array>
 

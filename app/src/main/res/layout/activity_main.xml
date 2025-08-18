@@ -17,15 +17,17 @@
             android:layout_width="62dp"
             android:layout_height="match_parent"
             android:background="?attr/primaryGrayBackground"
+            android:descendantFocusability="afterDescendants"
             app:itemIconTint="@color/item_select_color"
-
             app:itemTextColor="@color/item_select_color"
+            app:headerLayout="@layout/rail_header"
             app:labelVisibilityMode="unlabeled"
-            app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent"
             app:menu="@menu/bottom_nav_menu"
             app:menuGravity="center">
+
+            <include layout="@layout/rail_footer"/>
 
         </com.google.android.material.navigationrail.NavigationRailView>
         <!-- android:layout_height="65dp"
@@ -34,9 +36,9 @@
                   -->
         <com.google.android.material.bottomnavigation.BottomNavigationView
             android:id="@+id/nav_view"
-            android:layout_height="wrap_content"
+            android:layout_height="70dp"
             android:layout_width="0dp"
-            app:labelVisibilityMode="labeled"
+            app:labelVisibilityMode="unlabeled"
             android:background="?attr/primaryGrayBackground"
 
             app:itemIconTint="@color/item_select_color"

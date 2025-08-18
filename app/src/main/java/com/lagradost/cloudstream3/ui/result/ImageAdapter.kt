@@ -1,30 +1,17 @@
 package com.lagradost.cloudstream3.ui.result
 
 import android.view.LayoutInflater
-import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
-import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.isTrueTvSettings
+import com.lagradost.cloudstream3.databinding.ResultMiniImageBinding
+import com.lagradost.cloudstream3.ui.settings.Globals.TV
+import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
 
-/*
-class ImageAdapter(context: Context, val resource: Int) : ArrayAdapter<Int>(context, resource) {
-    override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-        val newConvertView = convertView ?: run {
-            val mInflater = context
-                .getSystemService(Activity.LAYOUT_INFLATER_SERVICE) as LayoutInflater
-            mInflater.inflate(resource, null)
-        }
-        getItem(position)?.let { (newConvertView as? ImageView?)?.setImageResource(it) }
-        return newConvertView
-    }
-}*/
 const val IMAGE_CLICK = 0
 const val IMAGE_LONG_CLICK = 1
 
 class ImageAdapter(
-    val layout: Int,
     val clickCallback: ((Int) -> Unit)? = null,
     val nextFocusUp: Int? = null,
     val nextFocusDown: Int? = null,
@@ -34,7 +21,9 @@ class ImageAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         return ImageViewHolder(
-            LayoutInflater.from(parent.context).inflate(layout, parent, false)
+            //result_mini_image
+            ResultMiniImageBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+           // LayoutInflater.from(parent.context).inflate(layout, parent, false)
         )
     }
 
@@ -65,16 +54,15 @@ class ImageAdapter(
         diffResult.dispatchUpdatesTo(this)
     }
 
-    class ImageViewHolder
-    constructor(itemView: View) :
-        RecyclerView.ViewHolder(itemView) {
+    class ImageViewHolder(val binding: ResultMiniImageBinding) :
+        RecyclerView.ViewHolder(binding.root) {
         fun bind(
             img: Int,
             clickCallback: ((Int) -> Unit)?,
             nextFocusUp: Int?,
             nextFocusDown: Int?,
         ) {
-            (itemView as? ImageView?)?.apply {
+            binding.root.apply {
                 setImageResource(img)
                 if (nextFocusDown != null) {
                     this.nextFocusDownId = nextFocusDown
@@ -83,7 +71,7 @@ class ImageAdapter(
                     this.nextFocusUpId = nextFocusUp
                 }
                 if (clickCallback != null) {
-                    if (isTrueTvSettings()) {
+                    if (isLayout(TV)) {
                         isClickable = true
                         isLongClickable = true
                         isFocusable = true

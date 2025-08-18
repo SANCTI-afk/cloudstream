@@ -19,8 +19,11 @@ class AbstractSubtitleEntities {
 
     data class SubtitleSearch(
         var query: String = "",
-        var imdb: Long? = null,
         var lang: String? = null,
+        var imdbId: String? = null,
+        var tmdbId: Int? = null,
+        var malId: Int? = null,
+        var aniListId: Int? = null,
         var epNumber: Int? = null,
         var seasonNumber: Int? = null,
         var year: Int? = null

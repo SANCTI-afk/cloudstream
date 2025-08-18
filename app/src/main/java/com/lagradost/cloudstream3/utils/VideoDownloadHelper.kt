@@ -1,21 +1,37 @@
 package com.lagradost.cloudstream3.utils
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.ui.download.EasyDownloadButton
-
 object VideoDownloadHelper {
+    abstract class DownloadCached(
+        @JsonProperty("id") open val id: Int,
+    )
+
     data class DownloadEpisodeCached(
         @JsonProperty("name") val name: String?,
         @JsonProperty("poster") val poster: String?,
         @JsonProperty("episode") val episode: Int,
         @JsonProperty("season") val season: Int?,
-        @JsonProperty("id") override val id: Int,
         @JsonProperty("parentId") val parentId: Int,
-        @JsonProperty("rating") val rating: Int?,
+        @JsonProperty("score") var score: Score? = null,
         @JsonProperty("description") val description: String?,
         @JsonProperty("cacheTime") val cacheTime: Long,
-    ) : EasyDownloadButton.IMinimumData
+        override val id: Int,
+    ): DownloadCached(id) {
+        @JsonProperty("rating", access = JsonProperty.Access.WRITE_ONLY)
+        @Deprecated(
+            "`rating` is the old scoring system, use score instead",
+            replaceWith = ReplaceWith("score"),
+            level = DeprecationLevel.ERROR
+        )
+        var rating: Int? = null
+            set(value) {
+                if (value != null) {
+                    score = Score.fromOld(value)
+                }
+            }
+    }
 
     data class DownloadHeaderCached(
         @JsonProperty("apiName") val apiName: String,
@@ -23,9 +39,9 @@ object VideoDownloadHelper {
         @JsonProperty("type") val type: TvType,
         @JsonProperty("name") val name: String,
         @JsonProperty("poster") val poster: String?,
-        @JsonProperty("id") val id: Int,
         @JsonProperty("cacheTime") val cacheTime: Long,
-    )
+        override val id: Int,
+    ): DownloadCached(id)
 
     data class ResumeWatching(
         @JsonProperty("parentId") val parentId: Int,

@@ -1,16 +1,12 @@
 package com.lagradost.cloudstream3.ui.search
 
 import android.view.LayoutInflater
-import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
-import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.TvType
-import kotlinx.android.synthetic.main.search_history_item.view.*
+import com.lagradost.cloudstream3.databinding.SearchHistoryItemBinding
 
 data class SearchHistoryItem(
     @JsonProperty("searchedAt") val searchedAt: Long,
@@ -34,8 +30,7 @@ class SearchHistoryAdaptor(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         return CardViewHolder(
-            LayoutInflater.from(parent.context)
-                .inflate(R.layout.search_history_item, parent, false),
+            SearchHistoryItemBinding.inflate(LayoutInflater.from(parent.context), parent, false),
             clickCallback,
         )
     }
@@ -63,24 +58,25 @@ class SearchHistoryAdaptor(
         diffResult.dispatchUpdatesTo(this)
     }
 
-    class CardViewHolder
-    constructor(
-        itemView: View,
+    class CardViewHolder(
+        val binding: SearchHistoryItemBinding,
         private val clickCallback: (SearchHistoryCallback) -> Unit,
     ) :
-        RecyclerView.ViewHolder(itemView) {
-        private val removeButton: ImageView = itemView.home_history_remove
-        private val openButton: View = itemView.home_history_tab
-        private val title: TextView = itemView.home_history_title
+        RecyclerView.ViewHolder(binding.root) {
+        //  private val removeButton: ImageView = itemView.home_history_remove
+        //  private val openButton: View = itemView.home_history_tab
+        // private val title: TextView = itemView.home_history_title
 
         fun bind(card: SearchHistoryItem) {
-            title.text = card.searchText
+            binding.apply {
+                homeHistoryTitle.text = card.searchText
 
-            removeButton.setOnClickListener {
-                clickCallback.invoke(SearchHistoryCallback(card, SEARCH_HISTORY_REMOVE))
-            }
-            openButton.setOnClickListener {
-                clickCallback.invoke(SearchHistoryCallback(card, SEARCH_HISTORY_OPEN))
+                homeHistoryRemove.setOnClickListener {
+                    clickCallback.invoke(SearchHistoryCallback(card, SEARCH_HISTORY_REMOVE))
+                }
+                homeHistoryTab.setOnClickListener {
+                    clickCallback.invoke(SearchHistoryCallback(card, SEARCH_HISTORY_OPEN))
+                }
             }
         }
     }

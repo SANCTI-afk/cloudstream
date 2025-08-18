@@ -8,18 +8,23 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
-import com.google.auto.service.AutoService
-import com.lagradost.cloudstream3.mvvm.normalSafeApiCall
-import com.lagradost.cloudstream3.mvvm.suspendSafeApiCall
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
+import com.lagradost.api.setContext
+import com.lagradost.cloudstream3.mvvm.safe
+import com.lagradost.cloudstream3.mvvm.safeAsync
 import com.lagradost.cloudstream3.plugins.PluginManager
-import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.isTvSettings
-import com.lagradost.cloudstream3.utils.AppUtils.openBrowser
+import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
+import com.lagradost.cloudstream3.ui.settings.Globals.TV
+import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
+import com.lagradost.cloudstream3.utils.AppContextUtils.openBrowser
 import com.lagradost.cloudstream3.utils.Coroutines.runOnMainThread
 import com.lagradost.cloudstream3.utils.DataStore.getKey
 import com.lagradost.cloudstream3.utils.DataStore.getKeys
 import com.lagradost.cloudstream3.utils.DataStore.removeKey
 import com.lagradost.cloudstream3.utils.DataStore.removeKeys
 import com.lagradost.cloudstream3.utils.DataStore.setKey
+import com.lagradost.cloudstream3.utils.ImageLoader
 import kotlinx.coroutines.runBlocking
 import org.acra.ACRA
 import org.acra.ReportField
@@ -32,40 +37,38 @@ import org.acra.sender.ReportSenderFactory
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.PrintStream
-import java.lang.Exception
 import java.lang.ref.WeakReference
+import java.util.Locale
 import kotlin.concurrent.thread
 import kotlin.system.exitProcess
-
 
 class CustomReportSender : ReportSender {
     // Sends all your crashes to google forms
     override fun send(context: Context, errorContent: CrashReportData) {
-        println("Sending report")
+        /*println("Sending report")
         val url =
-            "https://docs.google.com/forms/u/0/d/e/1FAIpQLSe9Vff8oHGMRXcjgCXZwkjvx3eBdNpn4DzjO0FkcWEU1gEQpA/formResponse"
+            "https://docs.google.com/forms/d/e/$id/formResponse"
         val data = mapOf(
-            "entry.1586460852" to errorContent.toJSON()
+            "entry.$entry" to errorContent.toJSON()
         )
 
         thread { // to not run it on main thread
             runBlocking {
-                suspendSafeApiCall {
-                    val post = app.post(url, data = data)
-                    println("Report response: $post")
+                safeAsync {
+                    app.post(url, data = data)
+                    //println("Report response: $post")
                 }
             }
         }
 
         runOnMainThread { // to run it on main looper
-            normalSafeApiCall {
+            safe {
                 Toast.makeText(context, R.string.acra_report_toast, Toast.LENGTH_SHORT).show()
             }
-        }
+        }*/
     }
 }
 
-@AutoService(ReportSenderFactory::class)
 class CustomSenderFactory : ReportSenderFactory {
     override fun create(context: Context, config: CoreConfiguration): ReportSender {
         return CustomReportSender()
@@ -82,14 +85,8 @@ class ExceptionHandler(val errorFile: File, val onError: (() -> Unit)) :
         ACRA.errorReporter.handleException(error)
         try {
             PrintStream(errorFile).use { ps ->
-                ps.println(String.format("Currently loading extension: ${PluginManager.currentlyLoading ?: "none"}"))
-                ps.println(
-                    String.format(
-                        "Fatal exception on thread %s (%d)",
-                        thread.name,
-                        thread.id
-                    )
-                )
+                ps.println("Currently loading extension: ${PluginManager.currentlyLoading ?: "none"}")
+                ps.println("Fatal exception on thread ${thread.name} (${thread.id})")
                 error.printStackTrace(ps)
             }
         } catch (ignored: FileNotFoundException) {
@@ -103,13 +100,21 @@ class ExceptionHandler(val errorFile: File, val onError: (() -> Unit)) :
 
 }
 
-class AcraApplication : Application() {
+class AcraApplication : Application(), SingletonImageLoader.Factory {
+
     override fun onCreate() {
         super.onCreate()
-        Thread.setDefaultUncaughtExceptionHandler(ExceptionHandler(filesDir.resolve("last_error")) {
+        // if we want to initialise coil at earliest
+        // (maybe when loading an image or gif using in splash screen activity)
+        //ImageLoader.buildImageLoader(applicationContext)
+
+        ExceptionHandler(filesDir.resolve("last_error")) {
             val intent = context!!.packageManager.getLaunchIntentForPackage(context!!.packageName)
             startActivity(Intent.makeRestartActivityTask(intent!!.component))
-        })
+        }.also {
+            exceptionHandler = it
+            Thread.setDefaultUncaughtExceptionHandler(it)
+        }
     }
 
     override fun attachBaseContext(base: Context?) {
@@ -121,10 +126,10 @@ class AcraApplication : Application() {
             buildConfigClass = BuildConfig::class.java
             reportFormat = StringFormat.JSON
 
-            reportContent = arrayOf(
+            reportContent = listOf(
                 ReportField.BUILD_CONFIG, ReportField.USER_CRASH_DATE,
                 ReportField.ANDROID_VERSION, ReportField.PHONE_MODEL,
-                ReportField.STACK_TRACE
+                ReportField.STACK_TRACE,
             )
 
             // removed this due to bug when starting the app, moved it to when it actually crashes
@@ -136,17 +141,38 @@ class AcraApplication : Application() {
         }
     }
 
+    override fun newImageLoader(context: PlatformContext): coil3.ImageLoader {
+        // Coil Module will be initialized & setSafe globally when first loadImage() is invoked
+        return ImageLoader.buildImageLoader(applicationContext)
+    }
+
     companion object {
+        var exceptionHandler: ExceptionHandler? = null
+
         /** Use to get activity from Context */
-        tailrec fun Context.getActivity(): Activity? = this as? Activity
-            ?: (this as? ContextWrapper)?.baseContext?.getActivity()
+        tailrec fun Context.getActivity(): Activity? {
+            return when (this) {
+                is Activity -> this
+                is ContextWrapper -> baseContext.getActivity()
+                else -> null
+            }
+        }
 
         private var _context: WeakReference<Context>? = null
         var context
             get() = _context?.get()
             private set(value) {
                 _context = WeakReference(value)
+                setContext(WeakReference(value))
             }
+
+        fun <T : Any> getKeyClass(path: String, valueType: Class<T>): T? {
+            return context?.getKey(path, valueType)
+        }
+
+        fun <T : Any> setKeyClass(path: String, value: T) {
+            context?.setKey(path, value)
+        }
 
         fun removeKeys(folder: String): Int? {
             return context?.removeKeys(folder)
@@ -199,10 +225,9 @@ class AcraApplication : Application() {
         fun openBrowser(url: String, activity: FragmentActivity?) {
             openBrowser(
                 url,
-                isTvSettings(),
+                isLayout(TV or EMULATOR),
                 activity?.supportFragmentManager?.fragments?.lastOrNull()
             )
         }
-
     }
 }

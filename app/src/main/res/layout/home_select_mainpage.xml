@@ -19,14 +19,14 @@
         android:nextFocusLeft="@id/apply_btt"
         android:nextFocusRight="@id/cancel_btt"
         android:requiresFadingEdge="vertical"
-        tools:listitem="@layout/sort_bottom_single_choice" />
+        tools:listitem="@layout/sort_bottom_single_provider_choice" />
 
     <LinearLayout
         android:orientation="vertical"
         android:layout_gravity="bottom"
         android:layout_width="match_parent"
         android:layout_height="60dp">
-        <include layout="@layout/tvtypes_chips_scroll" />
+        <include layout="@layout/tvtypes_chips_scroll" android:id="@+id/tvtypes_chips_scroll" />
         <LinearLayout
             android:id="@+id/apply_btt_holder"
             android:layout_width="match_parent"

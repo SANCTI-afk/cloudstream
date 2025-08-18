@@ -151,6 +151,7 @@
         <item>@string/show_hd</item>
         <item>@string/show_dub</item>
         <item>@string/show_sub</item>
+        <item>@string/show_rating</item>
         <item>@string/show_title</item>
     </array>
 
@@ -158,33 +159,8 @@
         <item>@string/show_hd_key</item>
         <item>@string/show_dub_key</item>
         <item>@string/show_sub_key</item>
+        <item>@string/show_rating_key</item>
         <item>@string/show_title_key</item>
-    </array>
-
-    <array name="episode_long_click_options">
-        <item>@string/episode_action_chromecast_episode</item>
-        <item>@string/episode_action_chromecast_mirror</item>
-        <item>@string/episode_action_play_in_app</item>
-        <item>@string/episode_action_play_in_format</item>
-        <item>@string/episode_action_play_in_browser</item>
-        <item>@string/episode_action_copy_link</item>
-        <item>@string/episode_action_auto_download</item>
-        <item>@string/episode_action_download_mirror</item>
-        <item>@string/episode_action_download_subtitle</item>
-        <item>@string/episode_action_reload_links</item>
-    </array>
-
-    <array name="episode_long_click_options_values">
-        <item>4</item>
-        <item>5</item>
-        <item>1</item>
-        <item>2</item>
-        <item>3</item>
-        <item>9</item>
-        <item>6</item>
-        <item>7</item>
-        <item>13</item>
-        <item>8</item>
     </array>
 
     <array name="app_layout">
@@ -203,12 +179,15 @@
 
     <string-array name="themes_overlay_names">
         <item>Normalny</item>
+        <item>Żółty mniszek lekarski</item>
         <item>Goździk różowy</item>
+        <item>Pomarańczowy</item>
         <item>Ciemnozielony</item>
         <item>Kasztanowaty</item>
         <item>Ciemnoniebieski</item>
         <item>Szary</item>
         <item>Biały</item>
+        <item>Fajny niebieski</item>
         <item>Brązowy</item>
         <item>Niebieski</item>
         <item>Czerwony</item>
@@ -218,17 +197,21 @@
         <item>Bananowy</item>
         <item>Łososiowy</item>
         <item>Świnko peppowy</item>
+        <item>Lawenda</item>
         <item>Material You</item>
         <item>Material You (drugorzędny)</item>
     </string-array>
     <string-array name="themes_overlay_names_values">
         <item>Normal</item>
+        <item>DandelionYellow</item>
         <item>CarnationPink</item>
+        <item>Orange</item>
         <item>DarkGreen</item>
         <item>Maroon</item>
         <item>NavyBlue</item>
         <item>Grey</item>
         <item>White</item>
+        <item>CoolBlue</item>
         <item>Brown</item>
         <item>Blue</item>
         <item>Red</item>
@@ -238,6 +221,7 @@
         <item>Banana</item>
         <item>Party</item>
         <item>Pink</item>
+        <item>Lavender</item>
         <item>Monet</item>
         <item>Monet2</item>
     </string-array>
@@ -248,6 +232,7 @@
         <item>Szary</item>
         <item>Amoled</item>
         <item>Flashbang</item>
+        <item>System</item>
         <item>Material You</item>
     </string-array>
     <string-array name="themes_names_values">
@@ -255,6 +240,7 @@
         <item>Black</item>
         <item>Amoled</item>
         <item>Light</item>
+        <item>System</item>
         <item>Monet</item>
     </string-array>
 

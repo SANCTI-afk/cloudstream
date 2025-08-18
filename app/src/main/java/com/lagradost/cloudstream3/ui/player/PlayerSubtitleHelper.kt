@@ -4,14 +4,13 @@ import android.util.Log
 import android.util.TypedValue
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import com.google.android.exoplayer2.ui.SubtitleView
-import com.google.android.exoplayer2.util.MimeTypes
+import androidx.annotation.OptIn
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.SubtitleView
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.ui.player.CustomDecoder.Companion.regexSubtitlesToRemoveBloat
-import com.lagradost.cloudstream3.ui.player.CustomDecoder.Companion.regexSubtitlesToRemoveCaptions
-import com.lagradost.cloudstream3.ui.player.CustomDecoder.Companion.uppercaseSubtitles
 import com.lagradost.cloudstream3.ui.subtitles.SaveCaptionStyle
-import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.fromSaveToStyle
+import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.setSubtitleViewStyle
 import com.lagradost.cloudstream3.utils.UIHelper.toPx
 
 enum class SubtitleStatus {
@@ -27,18 +26,48 @@ enum class SubtitleOrigin {
 }
 
 /**
- * @param name To be displayed in the player
- * @param url Url for the subtitle, when EMBEDDED_IN_VIDEO this variable is used as the real backend language
+ * @param originalName the start of the name to be displayed in the player
+ * @param nameSuffix An extra suffix added to the subtitle to make sure it is unique
+ * @param url Url for the subtitle, when EMBEDDED_IN_VIDEO this variable is used as the real backend id
  * @param headers if empty it will use the base onlineDataSource headers else only the specified headers
+ * @param languageCode Not guaranteed to follow any standard. Could be something like "English 4" or "en".
  * */
 data class SubtitleData(
-    val name: String,
+    val originalName: String,
+    val nameSuffix: String,
     val url: String,
     val origin: SubtitleOrigin,
     val mimeType: String,
-    val headers: Map<String, String>
-)
+    val headers: Map<String, String>,
+    val languageCode: String?,
+) {
+    companion object {
+        fun constructName(originalName: String, nameSuffix: String) = "$originalName $nameSuffix"
+    }
 
+    /** Internal ID for exoplayer, unique for each link*/
+    fun getId(): String {
+        return if (origin == SubtitleOrigin.EMBEDDED_IN_VIDEO) url
+        else "$url|$name"
+    }
+
+    val name = constructName(originalName, nameSuffix)
+
+    /**
+     * Gets the URL, but tries to fix it if it is malformed.
+     */
+    fun getFixedUrl(): String {
+        // Some extensions fail to include the protocol, this helps with that.
+        val fixedSubUrl = if (this.url.startsWith("//")) {
+            "https:${this.url}"
+        } else {
+            this.url
+        }
+        return fixedSubUrl
+    }
+}
+
+@OptIn(UnstableApi::class)
 class PlayerSubtitleHelper {
     private var activeSubtitles: Set<SubtitleData> = emptySet()
     private var allSubtitles: Set<SubtitleData> = emptySet()
@@ -55,8 +84,7 @@ class PlayerSubtitleHelper {
         allSubtitles = list
     }
 
-    private var subStyle: SaveCaptionStyle? = null
-    private var subtitleView: SubtitleView? = null
+    var subtitleView: SubtitleView? = null
 
     companion object {
         fun String.toSubtitleMimeType(): String {
@@ -70,41 +98,31 @@ class PlayerSubtitleHelper {
 
         fun getSubtitleData(subtitleFile: SubtitleFile): SubtitleData {
             return SubtitleData(
-                name = subtitleFile.lang,
+                originalName = subtitleFile.lang,
+                nameSuffix = "",
                 url = subtitleFile.url,
                 origin = SubtitleOrigin.URL,
                 mimeType = subtitleFile.url.toSubtitleMimeType(),
-                headers = emptyMap()
+                headers = subtitleFile.headers ?: emptyMap(),
+                languageCode = subtitleFile.lang
             )
         }
     }
 
-    fun subtitleStatus(sub : SubtitleData?): SubtitleStatus {
-        if(activeSubtitles.contains(sub)) {
+    fun subtitleStatus(sub: SubtitleData?): SubtitleStatus {
+        if (activeSubtitles.contains(sub)) {
             return SubtitleStatus.IS_ACTIVE
         }
-        if(allSubtitles.contains(sub)) {
+        if (allSubtitles.contains(sub)) {
             return SubtitleStatus.REQUIRES_RELOAD
         }
         return SubtitleStatus.NOT_FOUND
     }
 
     fun setSubStyle(style: SaveCaptionStyle) {
-        regexSubtitlesToRemoveBloat = style.removeBloat
-        uppercaseSubtitles = style.upperCase
-        regexSubtitlesToRemoveCaptions = style.removeCaptions
-        subtitleView?.context?.let { ctx ->
-            subStyle = style
-            Log.i(TAG,"SET STYLE = $style")
-            subtitleView?.setStyle(ctx.fromSaveToStyle(style))
-            subtitleView?.translationY = -style.elevation.toPx.toFloat()
-            val size = style.fixedTextSize
-            if (size != null) {
-                subtitleView?.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, size)
-            } else {
-                subtitleView?.setUserDefaultTextSize()
-            }
-        }
+        Log.i(TAG, "SET STYLE = $style")
+        subtitleView?.translationY = -style.elevation.toPx.toFloat()
+        setSubtitleViewStyle(subtitleView, style)
     }
 
     fun initSubtitles(subView: SubtitleView?, subHolder: FrameLayout?, style: SaveCaptionStyle?) {

@@ -1,8 +1,13 @@
 package com.lagradost.cloudstream3.ui.search
 
+import android.app.Activity
+import android.content.Intent
 import android.content.DialogInterface
 import android.content.res.Configuration
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.os.Bundle
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -11,6 +16,7 @@ import android.widget.AbsListView
 import android.widget.ArrayAdapter
 import android.widget.ImageView
 import android.widget.ListView
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SearchView
 import androidx.core.view.isVisible
@@ -19,45 +25,58 @@ import androidx.fragment.app.activityViewModels
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.activity.result.contract.ActivityResultContracts
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
-import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.APIHolder.filterProviderByPreferredMedia
-import com.lagradost.cloudstream3.APIHolder.filterSearchResultByFilmQuality
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
-import com.lagradost.cloudstream3.APIHolder.getApiProviderLangSettings
-import com.lagradost.cloudstream3.APIHolder.getApiSettings
-import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
 import com.lagradost.cloudstream3.AcraApplication.Companion.removeKey
 import com.lagradost.cloudstream3.AcraApplication.Companion.removeKeys
-import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
+import com.lagradost.cloudstream3.AllLanguagesName
+import com.lagradost.cloudstream3.AnimeSearchResponse
+import com.lagradost.cloudstream3.CommonActivity.showToast
+import com.lagradost.cloudstream3.HomePageList
+import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.MainActivity
 import com.lagradost.cloudstream3.MainActivity.Companion.afterPluginsLoadedEvent
+import com.lagradost.cloudstream3.R
+import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.databinding.FragmentSearchBinding
+import com.lagradost.cloudstream3.databinding.HomeSelectMainpageBinding
 import com.lagradost.cloudstream3.mvvm.Resource
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.mvvm.observe
 import com.lagradost.cloudstream3.ui.APIRepository
+import com.lagradost.cloudstream3.ui.BaseAdapter
 import com.lagradost.cloudstream3.ui.home.HomeFragment
 import com.lagradost.cloudstream3.ui.home.HomeFragment.Companion.bindChips
 import com.lagradost.cloudstream3.ui.home.HomeFragment.Companion.currentSpan
 import com.lagradost.cloudstream3.ui.home.HomeFragment.Companion.loadHomepageList
 import com.lagradost.cloudstream3.ui.home.HomeFragment.Companion.updateChips
 import com.lagradost.cloudstream3.ui.home.ParentItemAdapter
-import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.isTrueTvSettings
+import com.lagradost.cloudstream3.ui.result.FOCUS_SELF
+import com.lagradost.cloudstream3.ui.result.setLinearListLayout
+import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
+import com.lagradost.cloudstream3.ui.settings.Globals.TV
+import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
+import com.lagradost.cloudstream3.utils.AppContextUtils.filterProviderByPreferredMedia
+import com.lagradost.cloudstream3.utils.AppContextUtils.filterSearchResultByFilmQuality
+import com.lagradost.cloudstream3.utils.AppContextUtils.getApiProviderLangSettings
+import com.lagradost.cloudstream3.utils.AppContextUtils.getApiSettings
+import com.lagradost.cloudstream3.utils.AppContextUtils.ownHide
+import com.lagradost.cloudstream3.utils.AppContextUtils.ownShow
+import com.lagradost.cloudstream3.utils.AppContextUtils.setDefaultFocus
 import com.lagradost.cloudstream3.utils.Coroutines.main
-import com.lagradost.cloudstream3.utils.DataStore.getKey
-import com.lagradost.cloudstream3.utils.DataStore.setKey
+import com.lagradost.cloudstream3.utils.DataStoreHelper
+import com.lagradost.cloudstream3.utils.DataStoreHelper.currentAccount
 import com.lagradost.cloudstream3.utils.SubtitleHelper
 import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
 import com.lagradost.cloudstream3.utils.UIHelper.fixPaddingStatusbar
 import com.lagradost.cloudstream3.utils.UIHelper.getSpanCount
 import com.lagradost.cloudstream3.utils.UIHelper.hideKeyboard
-import kotlinx.android.synthetic.main.fragment_search.*
-import kotlinx.android.synthetic.main.tvtypes_chips.*
+import java.util.Locale
 import java.util.concurrent.locks.ReentrantLock
-
-const val SEARCH_PREF_TAGS = "search_pref_tags"
-const val SEARCH_PREF_PROVIDERS = "search_pref_providers"
 
 class SearchFragment : Fragment() {
     companion object {
@@ -78,12 +97,26 @@ class SearchFragment : Fragment() {
 
         fun newInstance(query: String): Bundle {
             return Bundle().apply {
-                putString(SEARCH_QUERY, query)
+                if(query.isNotBlank()) putString(SEARCH_QUERY, query)
             }
         }
     }
 
     private val searchViewModel: SearchViewModel by activityViewModels()
+    private var bottomSheetDialog: BottomSheetDialog? = null
+    var binding: FragmentSearchBinding? = null
+
+    private val speechRecognizerLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val data: Intent? = result.data
+                val matches = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                if (!matches.isNullOrEmpty()) {
+                    val recognizedText = matches[0]
+                    binding?.mainSearch?.setQuery(recognizedText, true)
+                }
+            }
+        }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -93,14 +126,25 @@ class SearchFragment : Fragment() {
         activity?.window?.setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
         )
-        return inflater.inflate(R.layout.fragment_search, container, false)
+        bottomSheetDialog?.ownShow()
+
+
+        binding = try {
+            val layout = if (isLayout(TV or EMULATOR)) R.layout.fragment_search_tv else R.layout.fragment_search
+            val root = inflater.inflate(layout, container, false)
+            FragmentSearchBinding.bind(root)
+        } catch (t : Throwable) {
+            FragmentSearchBinding.inflate(inflater)
+        }
+
+        return binding?.root
     }
 
     private fun fixGrid() {
         activity?.getSpanCount()?.let {
             currentSpan = it
         }
-        search_autofit_results.spanCount = currentSpan
+        binding?.searchAutofitResults?.spanCount = currentSpan
         currentSpan = currentSpan
         HomeFragment.configEvent.invoke(currentSpan)
     }
@@ -112,6 +156,8 @@ class SearchFragment : Fragment() {
 
     override fun onDestroyView() {
         hideKeyboard()
+        bottomSheetDialog?.ownHide()
+        binding = null
         super.onDestroyView()
     }
 
@@ -135,7 +181,8 @@ class SearchFragment : Fragment() {
      **/
     fun search(query: String?) {
         if (query == null) return
-
+        // don't resume state from prev search
+        (binding?.searchMasterRecycler?.adapter as? BaseAdapter<*,*>)?.clear()
         context?.let { ctx ->
             val default = enumValues<TvType>().sorted().filter { it != TvType.NSFW }
                 .map { it.ordinal.toString() }.toSet()
@@ -170,15 +217,15 @@ class SearchFragment : Fragment() {
         searchViewModel.reloadRepos()
         context?.filterProviderByPreferredMedia()?.let { validAPIs ->
             bindChips(
-                home_select_group,
+                binding?.tvtypesChipsScroll?.tvtypesChips,
                 selectedSearchTypes,
                 validAPIs.flatMap { api -> api.supportedTypes }.distinct()
             ) { list ->
                 if (selectedSearchTypes.toSet() != list.toSet()) {
-                    setKey(SEARCH_PREF_TAGS, selectedSearchTypes)
+                    DataStoreHelper.searchPreferenceTags = list
                     selectedSearchTypes.clear()
                     selectedSearchTypes.addAll(list)
-                    search(main_search?.query?.toString())
+                    search(binding?.mainSearch?.query?.toString())
                 }
             }
         }
@@ -188,38 +235,60 @@ class SearchFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        context?.fixPaddingStatusbar(searchRoot)
+        fixPaddingStatusbar(binding?.searchRoot)
         fixGrid()
         reloadRepos()
 
-        val adapter: RecyclerView.Adapter<RecyclerView.ViewHolder>? = activity?.let {
-            SearchAdapter(
-                ArrayList(),
-                search_autofit_results,
-            ) { callback ->
-                SearchHelper.handleSearchClickCallback(activity, callback)
+        binding?.apply {
+            val adapter: RecyclerView.Adapter<RecyclerView.ViewHolder> =
+                SearchAdapter(
+                    ArrayList(),
+                    searchAutofitResults,
+                ) { callback ->
+                    SearchHelper.handleSearchClickCallback(callback)
+                }
+
+            searchRoot.findViewById<TextView>(androidx.appcompat.R.id.search_src_text)?.tag = "tv_no_focus_tag"
+            searchAutofitResults.adapter = adapter
+            searchLoadingBar.alpha = 0f
+        }
+
+        binding?.voiceSearch?.setOnClickListener { searchView ->
+            searchView?.context?.let { ctx ->
+                try {
+                    if (!SpeechRecognizer.isRecognitionAvailable(ctx)) {
+                        showToast(R.string.speech_recognition_unavailable)
+                    } else {
+                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, ctx.getString(R.string.begin_speaking))
+                        }
+                        speechRecognizerLauncher.launch(intent)
+                    }
+                } catch (_ : Throwable) {
+                    // launch may throw
+                    showToast(R.string.speech_recognition_unavailable)
+                }
             }
         }
 
-        search_autofit_results.adapter = adapter
-        search_loading_bar.alpha = 0f
-
         val searchExitIcon =
-            main_search.findViewById<ImageView>(androidx.appcompat.R.id.search_close_btn)
+            binding?.mainSearch?.findViewById<ImageView>(androidx.appcompat.R.id.search_close_btn)
         // val searchMagIcon =
-        //    main_search.findViewById<ImageView>(androidx.appcompat.R.id.search_mag_icon)
-        //searchMagIcon.scaleX = 0.65f
-        //searchMagIcon.scaleY = 0.65f
+        //    binding?.mainSearch?.findViewById<ImageView>(androidx.appcompat.R.id.search_mag_icon)
+        // searchMagIcon.scaleX = 0.65f
+        // searchMagIcon.scaleY = 0.65f
 
-        context?.let { ctx ->
-            val validAPIs = ctx.filterProviderByPreferredMedia()
-            selectedApis = ctx.getKey(
-                SEARCH_PREF_PROVIDERS,
-                defVal = validAPIs.map { it.name }
-            )!!.toMutableSet()
-        }
+        // Set the color for the search exit icon to the correct theme text color
+        val searchExitIconColor = TypedValue()
 
-        search_filter.setOnClickListener { searchView ->
+        activity?.theme?.resolveAttribute(android.R.attr.textColor, searchExitIconColor, true)
+        searchExitIcon?.setColorFilter(searchExitIconColor.data)
+
+        selectedApis = DataStoreHelper.searchPreferenceProviders.toMutableSet()
+
+        binding?.searchFilter?.setOnClickListener { searchView ->
             searchView?.context?.let { ctx ->
                 val validAPIs = ctx.filterProviderByPreferredMedia(hasHomePageIsRequired = false)
                 var currentValidApis = listOf<MainAPI>()
@@ -230,9 +299,18 @@ class SearchFragment : Fragment() {
                     BottomSheetDialog(ctx)
 
                 builder.behavior.state = BottomSheetBehavior.STATE_EXPANDED
-                builder.setContentView(R.layout.home_select_mainpage)
+
+                val selectMainpageBinding: HomeSelectMainpageBinding = HomeSelectMainpageBinding.inflate(
+                    builder.layoutInflater,
+                    null,
+                    false
+                )
+                builder.setContentView(selectMainpageBinding.root)
                 builder.show()
                 builder.let { dialog ->
+                    val previousSelectedApis = selectedApis.toSet()
+                    val previousSelectedSearchTypes = selectedSearchTypes.toSet()
+
                     val isMultiLang = ctx.getApiProviderLangSettings().let { set ->
                         set.size > 1 || set.contains(AllLanguagesName)
                     }
@@ -259,7 +337,7 @@ class SearchFragment : Fragment() {
                     }
 
                     fun updateList(types: List<TvType>) {
-                        setKey(SEARCH_PREF_TAGS, types.map { it.name })
+                        DataStoreHelper.searchPreferenceTags = types
 
                         arrayAdapter.clear()
                         currentValidApis = validAPIs.filter { api ->
@@ -284,20 +362,22 @@ class SearchFragment : Fragment() {
                         arrayAdapter.notifyDataSetChanged()
                     }
 
-                    val selectedSearchTypes = getKey<List<String>>(SEARCH_PREF_TAGS)
-                        ?.mapNotNull { listName ->
-                            TvType.values().firstOrNull { it.name == listName }
-                        }
-                        ?.toMutableList()
-                        ?: mutableListOf(TvType.Movie, TvType.TvSeries)
-
                     bindChips(
-                        dialog.home_select_group,
+                        selectMainpageBinding.tvtypesChipsScroll.tvtypesChips,
                         selectedSearchTypes,
-                        TvType.values().toList()
+                        validAPIs.flatMap { api -> api.supportedTypes }.distinct()
                     ) { list ->
                         updateList(list)
+
+                        // refresh selected chips in main chips
+                        if (selectedSearchTypes.toSet() != list.toSet()) {
+                            selectedSearchTypes.clear()
+                            selectedSearchTypes.addAll(list)
+                            updateChips(binding?.tvtypesChipsScroll?.tvtypesChips, selectedSearchTypes)
+
+                        }
                     }
+
 
                     cancelBtt?.setOnClickListener {
                         dialog.dismissSafe()
@@ -315,8 +395,13 @@ class SearchFragment : Fragment() {
                     }
 
                     dialog.setOnDismissListener {
-                        context?.setKey(SEARCH_PREF_PROVIDERS, currentSelectedApis.toList())
+                        DataStoreHelper.searchPreferenceProviders = currentSelectedApis.toList()
                         selectedApis = currentSelectedApis
+
+                        // run search when dialog is close
+                        if(previousSelectedApis != selectedApis.toSet() || previousSelectedSearchTypes != selectedSearchTypes.toSet()) {
+                            search(binding?.mainSearch?.query?.toString())
+                        }
                     }
                     updateList(selectedSearchTypes.toList())
                 }
@@ -326,21 +411,18 @@ class SearchFragment : Fragment() {
         val settingsManager = context?.let { PreferenceManager.getDefaultSharedPreferences(it) }
         val isAdvancedSearch = settingsManager?.getBoolean("advanced_search", true) ?: true
 
-        selectedSearchTypes = context?.getKey<List<String>>(SEARCH_PREF_TAGS)
-            ?.mapNotNull { listName -> TvType.values().firstOrNull { it.name == listName } }
-            ?.toMutableList()
-            ?: mutableListOf(TvType.Movie, TvType.TvSeries)
+        selectedSearchTypes = DataStoreHelper.searchPreferenceTags.toMutableList()
 
-        if (isTrueTvSettings()) {
-            search_filter.isFocusable = true
-            search_filter.isFocusableInTouchMode = true
+        if (isLayout(TV)) {
+            binding?.searchFilter?.isFocusable = true
+            binding?.searchFilter?.isFocusableInTouchMode = true
         }
 
-        main_search.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+        binding?.mainSearch?.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String): Boolean {
                 search(query)
 
-                main_search?.let {
+                binding?.mainSearch?.let {
                     hideKeyboard(it)
                 }
 
@@ -354,24 +436,24 @@ class SearchFragment : Fragment() {
                     searchViewModel.clearSearch()
                     searchViewModel.updateHistory()
                 }
-
-                search_history_holder?.isVisible = showHistory
-
-                search_master_recycler?.isVisible = !showHistory && isAdvancedSearch
-                search_autofit_results?.isVisible = !showHistory && !isAdvancedSearch
+                binding?.apply {
+                    searchHistoryHolder.isVisible = showHistory
+                    searchMasterRecycler.isVisible = !showHistory && isAdvancedSearch
+                    searchAutofitResults.isVisible = !showHistory && !isAdvancedSearch
+                }
 
                 return true
             }
         })
 
-        search_clear_call_history?.setOnClickListener {
+        binding?.searchClearCallHistory?.setOnClickListener {
             activity?.let { ctx ->
                 val builder: AlertDialog.Builder = AlertDialog.Builder(ctx)
                 val dialogClickListener =
                     DialogInterface.OnClickListener { _, which ->
                         when (which) {
                             DialogInterface.BUTTON_POSITIVE -> {
-                                removeKeys(SEARCH_HISTORY_KEY)
+                                removeKeys("$currentAccount/$SEARCH_HISTORY_KEY")
                                 searchViewModel.updateHistory()
                             }
                             DialogInterface.BUTTON_NEGATIVE -> {
@@ -387,7 +469,7 @@ class SearchFragment : Fragment() {
                     )
                         .setPositiveButton(R.string.sort_clear, dialogClickListener)
                         .setNegativeButton(R.string.cancel, dialogClickListener)
-                        .show()
+                        .show().setDefaultFocus()
                 } catch (e: Exception) {
                     logError(e)
                     // ye you somehow fucked up formatting did you?
@@ -398,8 +480,8 @@ class SearchFragment : Fragment() {
         }
 
         observe(searchViewModel.currentHistory) { list ->
-            search_clear_call_history?.isVisible = list.isNotEmpty()
-            (search_history_recycler.adapter as? SearchHistoryAdaptor?)?.updateList(list)
+            binding?.searchClearCallHistory?.isVisible = list.isNotEmpty()
+            (binding?.searchHistoryRecycler?.adapter as? SearchHistoryAdaptor?)?.updateList(list)
         }
 
         searchViewModel.updateHistory()
@@ -409,20 +491,20 @@ class SearchFragment : Fragment() {
                 is Resource.Success -> {
                     it.value.let { data ->
                         if (data.isNotEmpty()) {
-                            (search_autofit_results?.adapter as SearchAdapter?)?.updateList(data)
+                            (binding?.searchAutofitResults?.adapter as? SearchAdapter)?.updateList(data)
                         }
                     }
-                    searchExitIcon.alpha = 1f
-                    search_loading_bar.alpha = 0f
+                    searchExitIcon?.alpha = 1f
+                    binding?.searchLoadingBar?.alpha = 0f
                 }
                 is Resource.Failure -> {
                     // Toast.makeText(activity, "Server error", Toast.LENGTH_LONG).show()
-                    searchExitIcon.alpha = 1f
-                    search_loading_bar.alpha = 0f
+                    searchExitIcon?.alpha = 1f
+                    binding?.searchLoadingBar?.alpha = 0f
                 }
                 is Resource.Loading -> {
-                    searchExitIcon.alpha = 0f
-                    search_loading_bar.alpha = 1f
+                    searchExitIcon?.alpha = 0f
+                    binding?.searchLoadingBar?.alpha = 1f
                 }
             }
         }
@@ -432,7 +514,7 @@ class SearchFragment : Fragment() {
             try {
                 // https://stackoverflow.com/questions/6866238/concurrent-modification-exception-adding-to-an-arraylist
                 listLock.lock()
-                (search_master_recycler?.adapter as ParentItemAdapter?)?.apply {
+                (binding?.searchMasterRecycler?.adapter as ParentItemAdapter?)?.apply {
                     val newItems = list.map { ongoing ->
                         val dataList =
                             if (ongoing.data is Resource.Success) ongoing.data.value else ArrayList()
@@ -464,11 +546,13 @@ class SearchFragment : Fragment() {
         }*/
         //main_search.onActionViewExpanded()*/
 
-        val masterAdapter: RecyclerView.Adapter<RecyclerView.ViewHolder> =
-            ParentItemAdapter(mutableListOf(), { callback ->
-                SearchHelper.handleSearchClickCallback(activity, callback)
+        val masterAdapter =
+            ParentItemAdapter(fragment = this, id = "masterAdapter".hashCode(), { callback ->
+                SearchHelper.handleSearchClickCallback(callback)
             }, { item ->
-                activity?.loadHomepageList(item)
+                bottomSheetDialog = activity?.loadHomepageList(item, dismissCallback = {
+                    bottomSheetDialog = null
+                })
             })
 
         val historyAdapter = SearchHistoryAdaptor(mutableListOf()) { click ->
@@ -477,11 +561,11 @@ class SearchFragment : Fragment() {
                 SEARCH_HISTORY_OPEN -> {
                     searchViewModel.clearSearch()
                     if (searchItem.type.isNotEmpty())
-                        updateChips(home_select_group, searchItem.type.toMutableList())
-                    main_search?.setQuery(searchItem.searchText, true)
+                        updateChips(binding?.tvtypesChipsScroll?.tvtypesChips, searchItem.type.toMutableList())
+                    binding?.mainSearch?.setQuery(searchItem.searchText, true)
                 }
                 SEARCH_HISTORY_REMOVE -> {
-                    removeKey(SEARCH_HISTORY_KEY, searchItem.key)
+                    removeKey("$currentAccount/$SEARCH_HISTORY_KEY", searchItem.key)
                     searchViewModel.updateHistory()
                 }
                 else -> {
@@ -490,19 +574,32 @@ class SearchFragment : Fragment() {
             }
         }
 
-        search_history_recycler?.adapter = historyAdapter
-        search_history_recycler?.layoutManager = GridLayoutManager(context, 1)
+        binding?.apply {
+            searchHistoryRecycler.adapter = historyAdapter
+            searchHistoryRecycler.setLinearListLayout(isHorizontal = false, nextRight = FOCUS_SELF)
+            //searchHistoryRecycler.layoutManager = GridLayoutManager(context, 1)
 
-        search_master_recycler?.adapter = masterAdapter
-        search_master_recycler?.layoutManager = GridLayoutManager(context, 1)
+            searchMasterRecycler.adapter = masterAdapter
+            //searchMasterRecycler.setLinearListLayout(isHorizontal = false, nextRight = FOCUS_SELF)
 
-        // Automatically search the specified query, this allows the app search to launch from intent
-        arguments?.getString(SEARCH_QUERY)?.let { query ->
-            if (query.isBlank()) return@let
-            main_search?.setQuery(query, true)
-            // Clear the query as to not make it request the same query every time the page is opened
-            arguments?.putString(SEARCH_QUERY, null)
+            searchMasterRecycler.layoutManager = GridLayoutManager(context, 1)
+
+            // Automatically search the specified query, this allows the app search to launch from intent
+            var sq = arguments?.getString(SEARCH_QUERY) ?: savedInstanceState?.getString(SEARCH_QUERY)
+            if(sq.isNullOrBlank()) {
+                sq = MainActivity.nextSearchQuery
+            }
+
+            sq?.let { query ->
+                if (query.isBlank()) return@let
+                mainSearch.setQuery(query, true)
+                // Clear the query as to not make it request the same query every time the page is opened
+                arguments?.remove(SEARCH_QUERY)
+                savedInstanceState?.remove(SEARCH_QUERY)
+                MainActivity.nextSearchQuery = null
+            }
         }
+
 
         // SubtitlesFragment.push(activity)
         //searchViewModel.search("iron man")

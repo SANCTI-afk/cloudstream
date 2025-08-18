@@ -14,6 +14,7 @@ import com.lagradost.cloudstream3.mvvm.Resource
 import com.lagradost.cloudstream3.mvvm.launchSafe
 import com.lagradost.cloudstream3.ui.APIRepository
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
+import com.lagradost.cloudstream3.utils.DataStoreHelper.currentAccount
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -37,7 +38,7 @@ class SearchViewModel : ViewModel() {
     private val _currentHistory: MutableLiveData<List<SearchHistoryItem>> = MutableLiveData()
     val currentHistory: LiveData<List<SearchHistoryItem>> get() = _currentHistory
 
-    private var repos = apis.map { APIRepository(it) }
+    private var repos = synchronized(apis) { apis.map { APIRepository(it) } }
 
     fun clearSearch() {
         _searchResponse.postValue(Resource.Success(ArrayList()))
@@ -48,7 +49,7 @@ class SearchViewModel : ViewModel() {
     private var onGoingSearch: Job? = null
 
     fun reloadRepos() {
-        repos = apis.map { APIRepository(it) }
+        repos = synchronized(apis) { apis.map { APIRepository(it) } }
     }
 
     fun searchAndCancel(
@@ -64,7 +65,7 @@ class SearchViewModel : ViewModel() {
 
     fun updateHistory() = viewModelScope.launch {
         ioSafe {
-            val items = getKeys(SEARCH_HISTORY_KEY)?.mapNotNull {
+            val items = getKeys("$currentAccount/$SEARCH_HISTORY_KEY")?.mapNotNull {
                 getKey<SearchHistoryItem>(it)
             }?.sortedByDescending { it.searchedAt } ?: emptyList()
             _currentHistory.postValue(items)
@@ -87,7 +88,7 @@ class SearchViewModel : ViewModel() {
             if (!isQuickSearch) {
                 val key = query.hashCode().toString()
                 setKey(
-                    SEARCH_HISTORY_KEY,
+                    "$currentAccount/$SEARCH_HISTORY_KEY",
                     key,
                     SearchHistoryItem(
                         searchedAt = System.currentTimeMillis(),

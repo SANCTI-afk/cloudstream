@@ -1,57 +1,139 @@
 package com.lagradost.cloudstream3.syncproviders
 
 import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
-import com.lagradost.cloudstream3.AcraApplication.Companion.removeKeys
 import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
-import com.lagradost.cloudstream3.syncproviders.providers.*
+import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.cloudstream3.syncproviders.providers.Addic7ed
+import com.lagradost.cloudstream3.syncproviders.providers.AniListApi
+import com.lagradost.cloudstream3.syncproviders.providers.LocalList
+import com.lagradost.cloudstream3.syncproviders.providers.MALApi
+import com.lagradost.cloudstream3.syncproviders.providers.OpenSubtitlesApi
+import com.lagradost.cloudstream3.syncproviders.providers.SimklApi
+import com.lagradost.cloudstream3.syncproviders.providers.SubDlApi
+import com.lagradost.cloudstream3.syncproviders.providers.SubSourceApi
+import com.lagradost.cloudstream3.utils.DataStoreHelper
 import java.util.concurrent.TimeUnit
 
-abstract class AccountManager(private val defIndex: Int) : AuthAPI {
+abstract class AccountManager {
     companion object {
-        val malApi = MALApi(0)
-        val aniListApi = AniListApi(0)
-        val openSubtitlesApi = OpenSubtitlesApi(0)
-        val indexSubtitlesApi = IndexSubtitleApi()
+        const val NONE_ID: Int = -1
+        val malApi = MALApi()
+        val aniListApi = AniListApi()
+        val simklApi = SimklApi()
+        val localListApi = LocalList()
 
-        // used to login via app intent
-        val OAuth2Apis
-            get() = listOf<OAuth2API>(
-                malApi, aniListApi
-            )
+        val openSubtitlesApi = OpenSubtitlesApi()
+        val addic7ed = Addic7ed()
+        val subDlApi = SubDlApi()
+        val subSourceApi = SubSourceApi()
 
-        // this needs init with context and can be accessed in settings
-        val accountManagers
-            get() = listOf(
-                malApi, aniListApi, openSubtitlesApi, //nginxApi
-            )
+        var cachedAccounts: MutableMap<String, Array<AuthData>>
+        var cachedAccountIds: MutableMap<String, Int>
 
-        // used for active syncing
-        val SyncApis
-            get() = listOf(
-                SyncRepo(malApi), SyncRepo(aniListApi)
-            )
+        const val ACCOUNT_TOKEN = "auth_tokens"
+        const val ACCOUNT_IDS = "auth_ids"
 
-        val inAppAuths
-            get() = listOf(openSubtitlesApi)//, nginxApi)
+        fun accounts(prefix: String): Array<AuthData> {
+            require(prefix != "NONE")
+            return getKey<Array<AuthData>>(
+                ACCOUNT_TOKEN,
+                "${prefix}/${DataStoreHelper.currentAccount}"
+            ) ?: arrayOf()
+        }
 
-        val subtitleProviders
-            get() = listOf(
-                openSubtitlesApi,
-                indexSubtitlesApi // they got anti scraping measures in place :(
-            )
+        fun updateAccounts(prefix: String, array: Array<AuthData>) {
+            require(prefix != "NONE")
+            setKey(ACCOUNT_TOKEN, "${prefix}/${DataStoreHelper.currentAccount}", array)
+            synchronized(cachedAccounts) {
+                cachedAccounts[prefix] = array
+            }
+        }
 
-        const val appString = "cloudstreamapp"
-        const val appStringRepo = "cloudstreamrepo"
+        fun updateAccountsId(prefix: String, id: Int) {
+            require(prefix != "NONE")
+            setKey(ACCOUNT_IDS, "${prefix}/${DataStoreHelper.currentAccount}", id)
+            synchronized(cachedAccountIds) {
+                cachedAccountIds[prefix] = id
+            }
+        }
+
+        val allApis = arrayOf(
+            SyncRepo(malApi),
+            SyncRepo(aniListApi),
+            SyncRepo(simklApi),
+            SyncRepo(localListApi),
+
+            SubtitleRepo(openSubtitlesApi),
+            SubtitleRepo(addic7ed),
+            SubtitleRepo(subDlApi),
+            SubtitleRepo(subSourceApi)
+        )
+
+        fun updateAccountIds() {
+            val ids = mutableMapOf<String, Int>()
+            for (api in allApis) {
+                ids.put(
+                    api.idPrefix,
+                    getKey<Int>(
+                        ACCOUNT_IDS,
+                        "${api.idPrefix}/${DataStoreHelper.currentAccount}",
+                        NONE_ID
+                    ) ?: NONE_ID
+                )
+            }
+            synchronized(cachedAccountIds) {
+                cachedAccountIds = ids
+            }
+        }
+
+        init {
+            val data = mutableMapOf<String, Array<AuthData>>()
+            val ids = mutableMapOf<String, Int>()
+            for (api in allApis) {
+                data.put(api.idPrefix, accounts(api.idPrefix))
+                ids.put(
+                    api.idPrefix,
+                    getKey<Int>(
+                        ACCOUNT_IDS,
+                        "${api.idPrefix}/${DataStoreHelper.currentAccount}",
+                        NONE_ID
+                    ) ?: NONE_ID
+                )
+            }
+            cachedAccounts = data
+            cachedAccountIds = ids
+        }
+
+        // I do not want to place this in the init block as JVM initialization order is weird, and it may cause exceptions
+        // accessing other classes
+        fun initMainAPI() {
+            LoadResponse.malIdPrefix = malApi.idPrefix
+            LoadResponse.aniListIdPrefix = aniListApi.idPrefix
+            LoadResponse.simklIdPrefix = simklApi.idPrefix
+        }
+
+        val subtitleProviders = arrayOf(
+            SubtitleRepo(openSubtitlesApi),
+            SubtitleRepo(addic7ed),
+            SubtitleRepo(subDlApi),
+            SubtitleRepo(subSourceApi)
+        )
+        val syncApis = arrayOf(
+            SyncRepo(malApi),
+            SyncRepo(aniListApi),
+            SyncRepo(simklApi),
+            SyncRepo(localListApi)
+        )
+
+        const val APP_STRING = "cloudstreamapp"
+        const val APP_STRING_REPO = "cloudstreamrepo"
+        const val APP_STRING_PLAYER = "cloudstreamplayer"
 
         // Instantly start the search given a query
-        const val appStringSearch = "cloudstreamsearch"
+        const val APP_STRING_SEARCH = "cloudstreamsearch"
 
-        val unixTime: Long
-            get() = System.currentTimeMillis() / 1000L
-        val unixTimeMs: Long
-            get() = System.currentTimeMillis()
-
-        const val maxStale = 60 * 10
+        // Instantly resume watching a show
+        const val APP_STRING_RESUME_WATCHING = "cloudstreamcontinuewatching"
 
         fun secondsToReadable(seconds: Int, completedValue: String): String {
             var secondsLong = seconds.toLong()
@@ -72,58 +154,5 @@ abstract class AccountManager(private val defIndex: Int) : AuthAPI {
             //println("$days $hours $minutes")
             return "${if (days != 0L) "$days" + "d " else ""}${if (hours != 0L) "$hours" + "h " else ""}${minutes}m"
         }
-    }
-
-    var accountIndex = defIndex
-    private var lastAccountIndex = defIndex
-    protected val accountId get() = "${idPrefix}_account_$accountIndex"
-    private val accountActiveKey get() = "${idPrefix}_active"
-
-    // int array of all accounts indexes
-    private val accountsKey get() = "${idPrefix}_accounts"
-
-    protected fun removeAccountKeys() {
-        removeKeys(accountId)
-        val accounts = getAccounts()?.toMutableList() ?: mutableListOf()
-        accounts.remove(accountIndex)
-        setKey(accountsKey, accounts.toIntArray())
-
-        init()
-    }
-
-    fun getAccounts(): IntArray? {
-        return getKey(accountsKey, intArrayOf())
-    }
-
-    fun init() {
-        accountIndex = getKey(accountActiveKey, defIndex)!!
-        val accounts = getAccounts()
-        if (accounts?.isNotEmpty() == true && this.loginInfo() == null) {
-            accountIndex = accounts.first()
-        }
-    }
-
-    protected fun switchToNewAccount() {
-        val accounts = getAccounts()
-        lastAccountIndex = accountIndex
-        accountIndex = (accounts?.maxOrNull() ?: 0) + 1
-    }
-    protected fun switchToOldAccount() {
-        accountIndex = lastAccountIndex
-    }
-
-    protected fun registerAccount() {
-        setKey(accountActiveKey, accountIndex)
-        val accounts = getAccounts()?.toMutableList() ?: mutableListOf()
-        if (!accounts.contains(accountIndex)) {
-            accounts.add(accountIndex)
-        }
-
-        setKey(accountsKey, accounts.toIntArray())
-    }
-
-    fun changeAccount(index: Int) {
-        accountIndex = index
-        setKey(accountActiveKey, index)
     }
 }

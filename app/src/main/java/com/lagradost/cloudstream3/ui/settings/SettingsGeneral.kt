@@ -1,53 +1,62 @@
 package com.lagradost.cloudstream3.ui.settings
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.view.View
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceManager
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.hippo.unifile.UniFile
 import com.lagradost.cloudstream3.APIHolder.allProviders
 import com.lagradost.cloudstream3.AcraApplication
 import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
 import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
 import com.lagradost.cloudstream3.CommonActivity
 import com.lagradost.cloudstream3.CommonActivity.showToast
+import com.lagradost.cloudstream3.MainActivity
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.databinding.AddRemoveSitesBinding
+import com.lagradost.cloudstream3.databinding.AddSiteInputBinding
 import com.lagradost.cloudstream3.mvvm.logError
-import com.lagradost.cloudstream3.mvvm.normalSafeApiCall
+import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.cloudstream3.network.initClient
-import com.lagradost.cloudstream3.ui.EasterEggMonke
+import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
+import com.lagradost.cloudstream3.ui.settings.Globals.TV
+import com.lagradost.cloudstream3.ui.settings.Globals.beneneCount
 import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.getPref
+import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.hideOn
 import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.setPaddingBottom
+import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.setToolBarScrollFlags
 import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.setUpToolbar
+import com.lagradost.cloudstream3.ui.settings.utils.getChooseFolderLauncher
+import com.lagradost.cloudstream3.utils.BatteryOptimizationChecker.isAppRestricted
+import com.lagradost.cloudstream3.utils.BatteryOptimizationChecker.showBatteryOptimizationDialog
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showBottomDialog
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showDialog
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showMultiDialog
 import com.lagradost.cloudstream3.utils.SubtitleHelper
 import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
 import com.lagradost.cloudstream3.utils.UIHelper.hideKeyboard
+import com.lagradost.cloudstream3.utils.UIHelper.navigate
 import com.lagradost.cloudstream3.utils.USER_PROVIDER_API
 import com.lagradost.cloudstream3.utils.VideoDownloadManager
 import com.lagradost.cloudstream3.utils.VideoDownloadManager.getBasePath
-import kotlinx.android.synthetic.main.add_remove_sites.*
-import kotlinx.android.synthetic.main.add_site_input.*
-import java.io.File
 
+// Change local language settings in the app.
 fun getCurrentLocale(context: Context): String {
     val res = context.resources
-    // Change locale settings in the app.
-    // val dm = res.displayMetrics
     val conf = res.configuration
-    return conf?.locale?.toString() ?: "en"
+
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        conf?.locales?.get(0)?.toString() ?: "en"
+    } else {
+        @Suppress("DEPRECATION")
+        conf?.locale?.toString() ?: "en"
+    }
 }
 
 // idk, if you find a way of automating this it would be great
@@ -55,39 +64,74 @@ fun getCurrentLocale(context: Context): String {
 // Emoji Character Encoding Data --> C/C++/Java Src
 // https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes leave blank for auto
 val appLanguages = arrayListOf(
-    Triple("", "Spanish", "es"),
+    /* begin language list */
+    Triple("", "Afrikaans", "af"),
+    Triple("", "عربي شامي", "ajp"),
+    Triple("", "አማርኛ", "am"),
+    Triple("", "العربية", "ar"),
+    Triple("", "اللهجة النجدية", "ars"),
+    Triple("", "অসমীয়া", "as"),
+    Triple("", "azərbaycan dili", "az"),
+    Triple("", "български", "bg"),
+    Triple("", "বাংলা", "bn"),
+    Triple("\uD83C\uDDE7\uD83C\uDDF7", "português brasileiro", "bp"),
+    Triple("", "čeština", "cs"),
+    Triple("", "Deutsch", "de"),
+    Triple("", "Ελληνικά", "el"),
     Triple("", "English", "en"),
-    Triple("", "Viet Nam", "vi"),
-    Triple("", "Dutch", "nl"),
-    Triple("", "French", "fr"),
-    Triple("", "Greek", "el"),
-    Triple("", "Swedish", "sv"),
+    Triple("", "Esperanto", "eo"),
+    Triple("", "español", "es"),
+    Triple("", "فارسی", "fa"),
+    Triple("", "fil", "fil"),
+    Triple("", "français", "fr"),
+    Triple("", "galego", "gl"),
+    Triple("", "हिन्दी", "hi"),
+    Triple("", "hrvatski", "hr"),
+    Triple("", "magyar", "hu"),
+    Triple("\uD83C\uDDEE\uD83C\uDDE9", "Bahasa Indonesia", "in"),
+    Triple("", "italiano", "it"),
+    Triple("\uD83C\uDDEE\uD83C\uDDF1", "עברית", "iw"),
+    Triple("", "日本語 (にほんご)", "ja"),
+    Triple("", "ಕನ್ನಡ", "kn"),
+    Triple("", "한국어", "ko"),
+    Triple("", "lietuvių kalba", "lt"),
+    Triple("", "latviešu valoda", "lv"),
+    Triple("", "македонски", "mk"),
+    Triple("", "മലയാളം", "ml"),
+    Triple("", "bahasa Melayu", "ms"),
+    Triple("", "Malti", "mt"),
+    Triple("", "ဗမာစာ", "my"),
+    Triple("", "नेपाली", "ne"),
+    Triple("", "Nederlands", "nl"),
+    Triple("", "norsk nynorsk", "nn"),
+    Triple("", "norsk bokmål", "no"),
+    Triple("", "ଓଡ଼ିଆ", "or"),
+    Triple("", "polski", "pl"),
+    Triple("\uD83C\uDDF5\uD83C\uDDF9", "português", "pt"),
+    Triple("\uD83E\uDD8D", "mmmm... monke", "qt"),
+    Triple("", "română", "ro"),
+    Triple("", "русский", "ru"),
+    Triple("", "slovenčina", "sk"),
+    Triple("", "Soomaaliga", "so"),
+    Triple("", "svenska", "sv"),
+    Triple("", "தமிழ்", "ta"),
+    Triple("", "ትግርኛ", "ti"),
     Triple("", "Tagalog", "tl"),
-    Triple("", "Polish", "pl"),
-    Triple("", "Hindi", "hi"),
-    Triple("", "Malayalam", "ml"),
-    Triple("", "Norsk", "no"),
-    Triple("", "German", "de"),
-    Triple("", "Arabic", "ar"),
-    Triple("", "Turkish", "tr"),
-    Triple("", "Macedonian", "mk"),
-    Triple("\uD83C\uDDF5\uD83C\uDDF9", "Portuguese", "pt"),
-    Triple("\uD83C\uDDE7\uD83C\uDDF7", "Brazilian Portuguese", "bp"),
-    Triple("", "Romanian", "ro"),
-    Triple("", "Italian", "it"),
-    Triple("", "Chinese Simplified", "zh"),
-    Triple("\uD83C\uDDF9\uD83C\uDDFC", "Chinese Traditional", "zh_TW"),
-    Triple("\uD83C\uDDEE\uD83C\uDDE9", "Indonesian", "in"),
-    Triple("", "Czech", "cs"),
-    Triple("", "Croatian", "hr"),
-    Triple("", "Bulgarian", "bg"),
-).sortedBy { it.second } //ye, we go alphabetical, so ppl don't put their lang on top
+    Triple("", "Türkçe", "tr"),
+    Triple("", "українська", "uk"),
+    Triple("", "اردو", "ur"),
+    Triple("", "Tiếng Việt", "vi"),
+    Triple("", "中文", "zh"),
+    Triple("\uD83C\uDDF9\uD83C\uDDFC", "正體中文(臺灣)", "zh-rTW"),
+/* end language list */
+).sortedBy { it.second.lowercase() } //ye, we go alphabetical, so ppl don't put their lang on top
 
 class SettingsGeneral : PreferenceFragmentCompat() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         setUpToolbar(R.string.category_general)
         setPaddingBottom()
+        setToolBarScrollFlags()
     }
 
     data class CustomSite(
@@ -101,37 +145,19 @@ class SettingsGeneral : PreferenceFragmentCompat() {
         val lang: String,
     )
 
-    // Open file picker
-    private val pathPicker =
-        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-            // It lies, it can be null if file manager quits.
-            if (uri == null) return@registerForActivityResult
-            val context = context ?: AcraApplication.context ?: return@registerForActivityResult
-            // RW perms for the path
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-
-            context.contentResolver.takePersistableUriPermission(uri, flags)
-
-            val file = UniFile.fromUri(context, uri)
-            println("Selected URI path: $uri - Full path: ${file.filePath}")
-
-            // Stores the real URI using download_path_key
-            // Important that the URI is stored instead of filepath due to permissions.
-            PreferenceManager.getDefaultSharedPreferences(context)
-                .edit().putString(getString(R.string.download_path_key), uri.toString()).apply()
-
-            // From URI -> File path
-            // File path here is purely for cosmetic purposes in settings
-            (file.filePath ?: uri.toString()).let {
-                PreferenceManager.getDefaultSharedPreferences(context)
-                    .edit().putString(getString(R.string.download_path_pref), it).apply()
-            }
+    private val pathPicker = getChooseFolderLauncher { uri, path ->
+        val context = context ?: AcraApplication.context ?: return@getChooseFolderLauncher
+        (path ?: uri.toString()).let {
+            PreferenceManager.getDefaultSharedPreferences(context).edit()
+                .putString(getString(R.string.download_path_key), uri.toString())
+                .putString(getString(R.string.download_path_key_visual), it)
+                .apply()
         }
+    }
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         hideKeyboard()
-        setPreferencesFromResource(R.xml.settins_general, rootKey)
+        setPreferencesFromResource(R.xml.settings_general, rootKey)
         val settingsManager = PreferenceManager.getDefaultSharedPreferences(requireContext())
 
         fun getCurrent(): MutableList<CustomSite> {
@@ -141,9 +167,6 @@ class SettingsGeneral : PreferenceFragmentCompat() {
 
         getPref(R.string.locale_key)?.setOnPreferenceClickListener { pref ->
             val tempLangs = appLanguages.toMutableList()
-            //if (beneneCount > 100) {
-            //    tempLangs.add(Triple("\uD83E\uDD8D", "mmmm... monke", "mo"))
-            //}
             val current = getCurrentLocale(pref.context)
             val languageCodes = tempLangs.map { (_, _, iso) -> iso }
             val languageNames = tempLangs.map { (emoji, name, iso) ->
@@ -167,9 +190,20 @@ class SettingsGeneral : PreferenceFragmentCompat() {
             return@setOnPreferenceClickListener true
         }
 
+        getPref(R.string.battery_optimisation_key)?.hideOn(TV or EMULATOR)?.setOnPreferenceClickListener {
+            val ctx = context ?: return@setOnPreferenceClickListener false
+
+            if (isAppRestricted(ctx)) {
+                ctx.showBatteryOptimizationDialog()
+            } else {
+                showToast(R.string.app_unrestricted_toast)
+            }
+
+            true
+        }
 
         fun showAdd() {
-            val providers = allProviders.distinctBy { it.javaClass }.sortedBy { it.name }
+            val providers = synchronized(allProviders) { allProviders.distinctBy { it.javaClass }.sortedBy { it.name } }
             activity?.showDialog(
                 providers.map { "${it.name} (${it.mainUrl})" },
                 -1,
@@ -178,21 +212,23 @@ class SettingsGeneral : PreferenceFragmentCompat() {
                 {}) { selection ->
                 val provider = providers.getOrNull(selection) ?: return@showDialog
 
+                val binding : AddSiteInputBinding = AddSiteInputBinding.inflate(layoutInflater,null,false)
+
                 val builder =
                     AlertDialog.Builder(context ?: return@showDialog, R.style.AlertDialogCustom)
-                        .setView(R.layout.add_site_input)
+                        .setView(binding.root)
 
                 val dialog = builder.create()
                 dialog.show()
 
-                dialog.text2?.text = provider.name
-                dialog.apply_btt?.setOnClickListener {
-                    val name = dialog.site_name_input?.text?.toString()
-                    val url = dialog.site_url_input?.text?.toString()
-                    val lang = dialog.site_lang_input?.text?.toString()
+                binding.text2.text = provider.name
+                binding.applyBtt.setOnClickListener {
+                    val name = binding.siteNameInput.text?.toString()
+                    val url = binding.siteUrlInput.text?.toString()
+                    val lang = binding.siteLangInput.text?.toString()
                     val realLang = if (lang.isNullOrBlank()) provider.lang else lang
                     if (url.isNullOrBlank() || name.isNullOrBlank() || realLang.length != 2) {
-                        showToast(activity, R.string.error_invalid_data, Toast.LENGTH_SHORT)
+                        showToast(R.string.error_invalid_data, Toast.LENGTH_SHORT)
                         return@setOnClickListener
                     }
 
@@ -200,10 +236,12 @@ class SettingsGeneral : PreferenceFragmentCompat() {
                     val newSite = CustomSite(provider.javaClass.simpleName, name, url, realLang)
                     current.add(newSite)
                     setKey(USER_PROVIDER_API, current.toTypedArray())
+                    // reload apis
+                    MainActivity.afterPluginsLoadedEvent.invoke(false)
 
                     dialog.dismissSafe(activity)
                 }
-                dialog.cancel_btt?.setOnClickListener {
+                binding.cancelBtt.setOnClickListener {
                     dialog.dismissSafe(activity)
                 }
             }
@@ -223,18 +261,19 @@ class SettingsGeneral : PreferenceFragmentCompat() {
         }
 
         fun showAddOrDelete() {
+            val binding : AddRemoveSitesBinding = AddRemoveSitesBinding.inflate(layoutInflater,null,false)
             val builder =
                 AlertDialog.Builder(context ?: return, R.style.AlertDialogCustom)
-                    .setView(R.layout.add_remove_sites)
+                    .setView(binding.root)
 
             val dialog = builder.create()
             dialog.show()
 
-            dialog.add_site?.setOnClickListener {
+            binding.addSite.setOnClickListener {
                 showAdd()
                 dialog.dismissSafe(activity)
             }
-            dialog.remove_site?.setOnClickListener {
+            binding.removeSite.setOnClickListener {
                 showDelete()
                 dialog.dismissSafe(activity)
             }
@@ -278,37 +317,41 @@ class SettingsGeneral : PreferenceFragmentCompat() {
             }
             return@setOnPreferenceClickListener true
         }
+
         fun getDownloadDirs(): List<String> {
-            return normalSafeApiCall {
-                val defaultDir = VideoDownloadManager.getDownloadDir()?.filePath
+            return safe {
+                context?.let { ctx ->
+                    val defaultDir = VideoDownloadManager.getDefaultDir(ctx)?.filePath()
 
-                // app_name_download_path = Cloudstream and does not change depending on release.
-                // DOES NOT WORK ON SCOPED STORAGE.
-                val secondaryDir =
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) null else Environment.getExternalStorageDirectory().absolutePath +
-                            File.separator + resources.getString(R.string.app_name_download_path)
-                val first = listOf(defaultDir, secondaryDir)
-                (try {
-                    val currentDir = context?.getBasePath()?.let { it.first?.filePath ?: it.second }
+                    val first = listOf(defaultDir)
+                    (try {
+                        val currentDir = ctx.getBasePath().let { it.first?.filePath() ?: it.second }
 
-                    (first +
-                            requireContext().getExternalFilesDirs("").mapNotNull { it.path } +
-                            currentDir)
-                } catch (e: Exception) {
-                    first
-                }).filterNotNull().distinct()
+                        (first +
+                                ctx.getExternalFilesDirs("").mapNotNull { it.path } +
+                                currentDir)
+                    } catch (e: Exception) {
+                        first
+                    }).filterNotNull().distinct()
+                }
             } ?: emptyList()
+        }
+
+        settingsManager.edit().putBoolean(getString(R.string.jsdelivr_proxy_key), getKey(getString(R.string.jsdelivr_proxy_key), false) ?: false).apply()
+        getPref(R.string.jsdelivr_proxy_key)?.setOnPreferenceChangeListener { _, newValue ->
+            setKey(getString(R.string.jsdelivr_proxy_key), newValue)
+            return@setOnPreferenceChangeListener true
         }
 
         getPref(R.string.download_path_key)?.setOnPreferenceClickListener {
             val dirs = getDownloadDirs()
 
             val currentDir =
-                settingsManager.getString(getString(R.string.download_path_pref), null)
-                    ?: VideoDownloadManager.getDownloadDir().toString()
+                settingsManager.getString(getString(R.string.download_path_key_visual), null)
+                    ?: context?.let { ctx -> VideoDownloadManager.getDefaultDir(ctx)?.filePath() }
 
             activity?.showBottomDialog(
-                dirs + listOf("Custom"),
+                dirs + listOf(getString(R.string.custom)),
                 dirs.indexOf(currentDir),
                 getString(R.string.download_path_pref),
                 true,
@@ -323,41 +366,38 @@ class SettingsGeneral : PreferenceFragmentCompat() {
                 } else {
                     // Sets both visual and actual paths.
                     // key = used path
-                    // pref = visual path
+                    // visual = visual path
                     settingsManager.edit()
-                        .putString(getString(R.string.download_path_key), dirs[it]).apply()
-                    settingsManager.edit()
-                        .putString(getString(R.string.download_path_pref), dirs[it]).apply()
+                        .putString(getString(R.string.download_path_key), dirs[it])
+                        .putString(getString(R.string.download_path_key_visual), dirs[it])
+                        .apply()
                 }
             }
             return@setOnPreferenceClickListener true
         }
 
         try {
-            SettingsFragment.beneneCount =
+            beneneCount =
                 settingsManager.getInt(getString(R.string.benene_count), 0)
             getPref(R.string.benene_count)?.let { pref ->
                 pref.summary =
-                    if (SettingsFragment.beneneCount <= 0) getString(R.string.benene_count_text_none) else getString(
+                    if (beneneCount <= 0) getString(R.string.benene_count_text_none) else getString(
                         R.string.benene_count_text
                     ).format(
-                        SettingsFragment.beneneCount
+                        beneneCount
                     )
 
                 pref.setOnPreferenceClickListener {
                     try {
-                        SettingsFragment.beneneCount++
-                        if (SettingsFragment.beneneCount%20 == 0) {
-                            val intent = Intent(context, EasterEggMonke::class.java)
-                            startActivity(intent)
+                        beneneCount++
+                        if (beneneCount%20 == 0) {
+                            activity?.navigate(R.id.action_navigation_settings_general_to_easterEggMonkeFragment)
                         }
                         settingsManager.edit().putInt(
                             getString(R.string.benene_count),
-                            SettingsFragment.beneneCount
-                        )
-                            .apply()
-                        it.summary =
-                            getString(R.string.benene_count_text).format(SettingsFragment.beneneCount)
+                            beneneCount
+                        ).apply()
+                        it.summary = getString(R.string.benene_count_text).format(beneneCount)
                     } catch (e: Exception) {
                         logError(e)
                     }
